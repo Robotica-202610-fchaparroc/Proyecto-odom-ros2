@@ -22,6 +22,7 @@ Este paquete proporciona una base educativa para trabajar con odometría, Lidar 
 1. Fuente del workspace (desde la raíz del workspace):
 
 ```bash
+colcon build --symlink-install
 source install/setup.bash
 ```
 
