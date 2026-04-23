@@ -14,6 +14,8 @@ from sensor_msgs.msg import LaserScan
 
 from .logic.lidar import obtener_distancia_angulo, obtener_distancias_rango
 from .logic.movement import calcular_movimiento_relativo, calcular_rotacion
+from .logic.cspace_from_txt import generar_cspace_desde_texto_escena
+from .logic.cspace_plot import mostrar_cspace
 
 
 class NavigationNode(Node):
@@ -30,6 +32,10 @@ class NavigationNode(Node):
         self.esperando_conexion = False
         self.tiempo_inicio_espera = None
         self.mensaje_pendiente = None
+
+        # Estado Escena y Malla
+        self.cspace_resultado = None
+        self.lado_robot=0.5
 
         # Estado robot
         self.current_x = 0.0
@@ -199,6 +205,115 @@ class NavigationNode(Node):
             self.get_logger().error(f"Error al lanzar el bridge: {e}")
             return False
 
+    ## CREAR MALLA EN ESCENA
+    def buscar_celda_punto_cspace(self, x, y, matriz, dx, dy, ancho, alto):
+        columnas = int(round(ancho / dx))
+        filas = int(round(alto / dy))
+
+        if not (0.0 <= x <= ancho and 0.0 <= y <= alto):
+            return None, None, "FUERA"
+
+        columna = min(int(x / dx), columnas - 1)
+        fila_desde_abajo = min(int(y / dy), filas - 1)
+        fila_desde_arriba = filas - 1 - fila_desde_abajo
+
+        estado = matriz[fila_desde_arriba][columna]
+        return fila_desde_arriba, columna, estado
+
+    def nombre_estado_celda(self, estado):
+        nombres = {
+            "L": "Libre",
+            "S": "Semilibre",
+            "O": "Ocupada",
+            "FUERA": "Fuera del workspace",
+        }
+        return nombres.get(estado, estado)
+
+    def probar_cspace_escena_actual(self):
+        if not self.texto_escena.strip():
+            print("⚠️ Primero carga una escena TXT.")
+            return
+
+        try:
+            entrada=input("Ingresa el lado del robot en metros (Enter para usar 0.5 por default): ").strip()
+
+            if entrada == "":
+                self.lado_robot=0.5
+            else:
+                self.lado_robot=float(entrada)
+        except ValueError:
+            print("Valor invalido, se usara por defecto 0.5")
+            self.lado_robot=0.5
+
+        resultado = generar_cspace_desde_texto_escena(
+            self.texto_escena,
+            lado_robot=self.lado_robot,
+            delta_x=0.25,
+            delta_y=0.25
+        )
+
+        filas = len(resultado["matriz"])
+        columnas = len(resultado["matriz"][0]) if filas > 0 else 0
+
+        ocupadas = sum(c == "O" for fila in resultado["matriz"] for c in fila)
+        semilibres = sum(c == "S" for fila in resultado["matriz"] for c in fila)
+        libres = sum(c == "L" for fila in resultado["matriz"] for c in fila)
+
+        q0x, q0y, q0theta = resultado["q0"]
+        qfx, qfy, qftheta = resultado["qf"]
+
+        fila_i, col_i, estado_i = self.buscar_celda_punto_cspace(
+            q0x, q0y,
+            resultado["matriz"],
+            resultado["delta_x"], resultado["delta_y"],
+            resultado["ancho"], resultado["alto"]
+        )
+
+        fila_f, col_f, estado_f = self.buscar_celda_punto_cspace(
+            qfx, qfy,
+            resultado["matriz"],
+            resultado["delta_x"], resultado["delta_y"],
+            resultado["ancho"], resultado["alto"]
+        )
+
+        print("\n--- C-SPACE GENERADO ---")
+        print(f"Dimensiones workspace: {resultado['ancho']} x {resultado['alto']}")
+        print(f"Resolución: dx={resultado['delta_x']}, dy={resultado['delta_y']}")
+        print(f"Lado robot: lado_robot={resultado['lado_robot']}")
+        print(f"Filas: {filas}, Columnas: {columnas}")
+        print(f"Número de obstáculos: {len(resultado['obstaculos'])}")
+        print(f"Número de C-obstáculos: {len(resultado['c_obstaculos'])}")
+        print(f"Celdas libres: {libres}")
+        print(f"Celdas semilibres: {semilibres}")
+        print(f"Celdas ocupadas: {ocupadas}")
+        print(
+            f"Límites C-space: "
+            f"x[{resultado['c_x_min']:.3f}, {resultado['c_x_max']:.3f}] "
+            f"y[{resultado['c_y_min']:.3f}, {resultado['c_y_max']:.3f}]"
+        )
+
+        print("\n--- CLASIFICACIÓN DE CONFIGURACIONES ---")
+        print(
+            f"q0 = ({q0x:.2f}, {q0y:.2f}, {q0theta:.1f}°) -> "
+            f"fila={fila_i}, columna={col_i}, estado={self.nombre_estado_celda(estado_i)}"
+        )
+        print(
+            f"qf = ({qfx:.2f}, {qfy:.2f}, {qftheta:.1f}°) -> "
+            f"fila={fila_f}, columna={col_f}, estado={self.nombre_estado_celda(estado_f)}"
+        )
+        print("------------------------\n")
+
+        self.cspace_resultado = resultado
+
+    def graficar_cspace_escena_actual(self):
+        if not hasattr(self, "cspace_resultado") or self.cspace_resultado is None:
+            print("⚠️ Primero genera el C-space de la escena.")
+            return
+
+        mostrar_cspace(self.cspace_resultado)
+
+
+
     # =======================================================
     # WRAPPERS PARA LOS ESTUDIANTES
     # =======================================================
@@ -355,10 +470,12 @@ class NavigationNode(Node):
             print("6. Leer distancia por dirección (Frente, Atras, Izquierda, Derecha)")
             print("7. Lanzar Gazebo con escena SDF")
             print("8. Lanzar bridge ROS2 <-> Gazebo")
+            print("9. Generar C-space desde escena TXT")
+            print("10. Graficar malla C-space")
             print("=" * 35)
 
             try:
-                opcion = input("Elige una opción (1-8): ")
+                opcion = input("Elige una opción (1-10): ")
 
                 if opcion == '1':
                     angulo = float(input("Ingresa el ángulo (en grados): "))
@@ -400,6 +517,12 @@ class NavigationNode(Node):
 
                 elif opcion == '8':
                     self.lanzar_bridge()
+
+                elif opcion == '9':
+                    self.probar_cspace_escena_actual()
+
+                elif opcion == '10':
+                    self.graficar_cspace_escena_actual()
 
                 else:
                     print("Opción no válida. Intenta de nuevo.")
