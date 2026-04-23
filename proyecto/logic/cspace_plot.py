@@ -242,47 +242,7 @@ def graficar_cspace_discretizado_multi(resultado, plan=None):
     dibujar_robot(eje, (qfx, qfy), lado_robot, "blue")
 
     # Dibujar ruta A* si existe solución
-    if plan is not None and "camino" in plan and plan["camino"]:
-        puntos_x = []
-        puntos_y = []
 
-        ultima_celda = None
-
-        for fila, columna, _orientacion in plan["camino"]:
-            celda_actual = (fila, columna)
-
-            if celda_actual == ultima_celda:
-                continue
-
-            x, y = celda_a_coordenada_centro(
-                fila,
-                columna,
-                delta_x,
-                delta_y,
-                alto
-            )
-            puntos_x.append(x)
-            puntos_y.append(y)
-
-            ultima_celda = celda_actual
-
-        q0x, q0y, _ = resultado["q0"]
-        qfx, qfy, _ = resultado["qf"]
-
-        if puntos_x and puntos_y:
-            puntos_x[0] = q0x
-            puntos_y[0] = q0y
-            puntos_x[-1] = qfx
-            puntos_y[-1] = qfy
-
-        eje.plot(
-            puntos_x,
-            puntos_y,
-            color="magenta",
-            linewidth=2.5,
-            label="Ruta A*",
-            zorder=10
-        )
 
     eje.legend(
         loc="upper left",
