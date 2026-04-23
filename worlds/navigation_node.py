@@ -79,7 +79,7 @@ class NavigationNode(Node):
 ##############################################
 # RUTAS NUEVAS
     def obtener_rutas_base(self):
-        package_share = get_package_share_directory('proyecto2')
+        package_share = get_package_share_directory('proyecto')
         ruta_data = os.path.join(package_share, 'data')
         ruta_worlds = os.path.join(package_share, 'worlds')
         return package_share, ruta_data, ruta_worlds

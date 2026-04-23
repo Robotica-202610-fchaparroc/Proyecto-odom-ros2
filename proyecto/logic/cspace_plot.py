@@ -84,12 +84,16 @@ def dibujar_robot(eje, centro, lado, color):
     )
     eje.add_patch(rect)
 
+def close_plot_grid():
+    print(f"Cerrando Gráfico anterior con malla, si exite")
+    plt.close()
 
-def graficar_cspace_discretizado_multi(resultado):
+def graficar_cspace_discretizado_multi(resultado, plan=None):
     """
     Dibuja la malla discretizada del C-space usando el diccionario
     retornado por generar_cspace_desde_texto_escena(...).
     """
+
     ancho = resultado["ancho"]
     alto = resultado["alto"]
     lado_robot = resultado["lado_robot"]
@@ -104,6 +108,7 @@ def graficar_cspace_discretizado_multi(resultado):
     q0x, q0y, _ = resultado["q0"]
     qfx, qfy, _ = resultado["qf"]
 
+    close_plot_grid()
     figura, eje = plt.subplots(figsize=(8, 7))
 
     eje.set_title("C-space discretizado")
@@ -236,6 +241,49 @@ def graficar_cspace_discretizado_multi(resultado):
     dibujar_robot(eje, (q0x, q0y), lado_robot, "green")
     dibujar_robot(eje, (qfx, qfy), lado_robot, "blue")
 
+    # Dibujar ruta A* si existe solución
+    if plan is not None and "camino" in plan and plan["camino"]:
+        puntos_x = []
+        puntos_y = []
+
+        ultima_celda = None
+
+        for fila, columna, _orientacion in plan["camino"]:
+            celda_actual = (fila, columna)
+
+            if celda_actual == ultima_celda:
+                continue
+
+            x, y = celda_a_coordenada_centro(
+                fila,
+                columna,
+                delta_x,
+                delta_y,
+                alto
+            )
+            puntos_x.append(x)
+            puntos_y.append(y)
+
+            ultima_celda = celda_actual
+
+        q0x, q0y, _ = resultado["q0"]
+        qfx, qfy, _ = resultado["qf"]
+
+        if puntos_x and puntos_y:
+            puntos_x[0] = q0x
+            puntos_y[0] = q0y
+            puntos_x[-1] = qfx
+            puntos_y[-1] = qfy
+
+        eje.plot(
+            puntos_x,
+            puntos_y,
+            color="magenta",
+            linewidth=2.5,
+            label="Ruta A*",
+            zorder=10
+        )
+
     eje.legend(
         loc="upper left",
         bbox_to_anchor=(1.02, 1),  # Cuadro labels fuera del gráfico
@@ -244,7 +292,16 @@ def graficar_cspace_discretizado_multi(resultado):
     return figura, eje
 
 
-def mostrar_cspace(resultado):
-    graficar_cspace_discretizado_multi(resultado)
-    plt.tight_layout()
-    plt.show()
+def mostrar_cspace(resultado, plan=None):
+    graficar_cspace_discretizado_multi(resultado, plan=plan)
+    plt.show(block=False)
+    plt.pause(0.001)
+
+def celda_a_coordenada_centro(fila, columna, dx, dy, alto):
+    """
+    Convierte una celda de la matriz (fila desde arriba, columna)
+    al centro geométrico de la celda en coordenadas del workspace.
+    """
+    x = columna * dx + dx / 2.0
+    y = alto - (fila + 1) * dy + dy / 2.0
+    return x, y

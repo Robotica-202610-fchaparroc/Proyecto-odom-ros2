@@ -15,7 +15,12 @@ from sensor_msgs.msg import LaserScan
 from .logic.lidar import obtener_distancia_angulo, obtener_distancias_rango
 from .logic.movement import calcular_movimiento_relativo, calcular_rotacion
 from .logic.cspace_from_txt import generar_cspace_desde_texto_escena
-from .logic.cspace_plot import mostrar_cspace
+from .logic.cspace_plot import mostrar_cspace, close_plot_grid
+from .logic.astar_grid import (
+    astar_orientado,
+    theta_a_orientacion,
+    orientacion_a_texto,
+)
 
 
 class NavigationNode(Node):
@@ -36,6 +41,9 @@ class NavigationNode(Node):
         # Estado Escena y Malla
         self.cspace_resultado = None
         self.lado_robot=0.5
+
+        # Estado planificación A*
+        self.plan_resultado = None
 
         # Estado robot
         self.current_x = 0.0
@@ -88,7 +96,7 @@ class NavigationNode(Node):
     # RUTAS Y PROCESOS
     # =======================================================
     def obtener_rutas_base(self):
-        package_share = get_package_share_directory('proyecto2')
+        package_share = get_package_share_directory('proyecto')
         ruta_data = os.path.join(package_share, 'data')
         ruta_worlds = os.path.join(package_share, 'worlds')
         return ruta_data, ruta_worlds
@@ -135,6 +143,8 @@ class NavigationNode(Node):
 
         self.detener_gazebo()
         time.sleep(2)
+
+        close_plot_grid()
 
         print(f"\nLanzando Gazebo con ruta SDF: {ruta_sdf}")
 
@@ -248,8 +258,8 @@ class NavigationNode(Node):
         resultado = generar_cspace_desde_texto_escena(
             self.texto_escena,
             lado_robot=self.lado_robot,
-            delta_x=0.25,
-            delta_y=0.25
+            delta_x=0.1,
+            delta_y=0.1
         )
 
         filas = len(resultado["matriz"])
@@ -310,8 +320,76 @@ class NavigationNode(Node):
             print("⚠️ Primero genera el C-space de la escena.")
             return
 
-        mostrar_cspace(self.cspace_resultado)
+        plan = self.plan_resultado if hasattr(self, "plan_resultado") else None
+        mostrar_cspace(self.cspace_resultado, plan=plan)
 
+    ## Metodo planificación A*
+    def planificar_ruta_astar(self):
+        if self.cspace_resultado is None:
+            print("⚠️ Primero genera el C-space.")
+            return
+
+        resultado = self.cspace_resultado
+        matriz = resultado["matriz"]
+
+        q0x, q0y, q0theta = resultado["q0"]
+        qfx, qfy, qftheta = resultado["qf"]
+
+        fila_i, col_i, estado_i = self.buscar_celda_punto_cspace(
+            q0x, q0y,
+            matriz,
+            resultado["delta_x"], resultado["delta_y"],
+            resultado["ancho"], resultado["alto"]
+        )
+
+        fila_f, col_f, estado_f = self.buscar_celda_punto_cspace(
+            qfx, qfy,
+            matriz,
+            resultado["delta_x"], resultado["delta_y"],
+            resultado["ancho"], resultado["alto"]
+        )
+
+        if estado_i != "L":
+            print(f"⚠️ q0 no está en celda libre: {estado_i}")
+            return
+
+        if estado_f != "L":
+            print(f"⚠️ qf no está en celda libre: {estado_f}")
+            return
+
+        try:
+            orient_inicio = theta_a_orientacion(q0theta)
+            orient_meta = theta_a_orientacion(qftheta)
+        except ValueError as e:
+            print(f"⚠️ {e}")
+            return
+
+        inicio = (fila_i, col_i, orient_inicio)
+        meta = (fila_f, col_f, orient_meta)
+
+        plan = astar_orientado(matriz, inicio, meta, estados_transitables=("L",))
+
+        if plan is None:
+            print("❌ No se encontró ruta con A*.")
+            self.plan_resultado = None
+            return
+
+        self.plan_resultado = plan
+
+        print("\n--- RUTA A* ENCONTRADA ---")
+        print(f"Costo total: {plan['costo']}")
+        print(f"Número de estados: {len(plan['camino'])}")
+        print("Acciones:")
+
+        for i, accion in enumerate(plan["acciones"], start=1):
+            print(f"  {i}. {accion}")
+
+        estado_final = plan["camino"][-1]
+        print(
+            f"Estado final: fila={estado_final[0]}, col={estado_final[1]}, "
+            f"orientación={orientacion_a_texto(estado_final[2])}"
+        )
+        print("--------------------------\n")
 
 
     # =======================================================
@@ -472,10 +550,11 @@ class NavigationNode(Node):
             print("8. Lanzar bridge ROS2 <-> Gazebo")
             print("9. Generar C-space desde escena TXT")
             print("10. Graficar malla C-space")
+            print("11. Planificar ruta con A*")
             print("=" * 35)
 
             try:
-                opcion = input("Elige una opción (1-10): ")
+                opcion = input("Elige una opción (1-11): ")
 
                 if opcion == '1':
                     angulo = float(input("Ingresa el ángulo (en grados): "))
@@ -523,6 +602,9 @@ class NavigationNode(Node):
 
                 elif opcion == '10':
                     self.graficar_cspace_escena_actual()
+
+                elif opcion == '11':
+                    self.planificar_ruta_astar()
 
                 else:
                     print("Opción no válida. Intenta de nuevo.")
