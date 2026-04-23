@@ -549,8 +549,8 @@ class NavigationNode(Node):
             print("7. Lanzar Gazebo con escena SDF")
             print("8. Lanzar bridge ROS2 <-> Gazebo")
             print("9. Generar C-space desde escena TXT")
-            print("10. Graficar malla C-space")
-            print("11. Planificar ruta con A*")
+            print("10. Planificar ruta con A*")
+            print("11. Graficar malla C-space")
             print("=" * 35)
 
             try:
@@ -601,10 +601,10 @@ class NavigationNode(Node):
                     self.probar_cspace_escena_actual()
 
                 elif opcion == '10':
-                    self.graficar_cspace_escena_actual()
+                    self.planificar_ruta_astar()
 
                 elif opcion == '11':
-                    self.planificar_ruta_astar()
+                    self.graficar_cspace_escena_actual()
 
                 else:
                     print("Opción no válida. Intenta de nuevo.")
