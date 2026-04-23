@@ -6,6 +6,9 @@ from geometry_msgs.msg import Twist
 import math
 import threading
 import os
+import subprocess
+import time
+import signal
 
 from .logic.lidar import obtener_distancia_angulo, obtener_distancias_rango
 from .logic.movement import calcular_rotacion, calcular_movimiento_relativo
@@ -14,6 +17,14 @@ class NavigationNode(Node):
     def __init__(self):
         super().__init__('student_navigation')
         
+        # Procesos externos
+        self.gz_process = None
+        self.bridge_process = None
+
+        # Estado de conexión con simulador gazebo
+        self.odom_recibido = False
+        self.scan_recibido = False
+
         # Suscriptores
         self.odom_sub = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
         self.lidar_sub = self.create_subscription(LaserScan, 'scan_raw', self.lidar_callback, 10)
@@ -50,6 +61,7 @@ class NavigationNode(Node):
     # CALLBACKS DE ROS2
     # =======================================================
     def odom_callback(self, msg):
+        self.odom_recibido = True
         self.current_x = msg.pose.pose.position.x
         self.current_y = msg.pose.pose.position.y
         
@@ -58,7 +70,136 @@ class NavigationNode(Node):
         self.current_theta = 2.0 * math.atan2(qz, qw)
 
     def lidar_callback(self, msg):
+        self.scan_recibido = True
         self.last_scan = msg
+
+##############################################
+# RUTAS NUEVAS
+    def obtener_rutas_base(self):
+        """
+        Retorna rutas absolutas a carpetas importantes del proyecto.
+        navigation_node.py está en Proyecto-Ros/proyecto/navigation_node.py
+        """
+        directorio_actual = os.path.dirname(os.path.abspath(__file__))   # .../Proyecto-Ros/proyecto
+        raiz_proyecto = os.path.abspath(os.path.join(directorio_actual, '..'))  # .../Proyecto-Ros
+
+        ruta_data = os.path.join(raiz_proyecto, 'data')
+        ruta_worlds = os.path.join(raiz_proyecto, 'worlds')
+
+        return raiz_proyecto, ruta_data, ruta_worlds
+    
+    def detener_simulacion(self):
+        """Detiene Gazebo y el bridge si estaban corriendo."""
+        procesos = [
+            (self.bridge_process, "bridge"),
+            (self.gz_process, "gazebo")
+        ]
+
+        for proceso, nombre in procesos:
+            if proceso and proceso.poll() is None:
+                self.get_logger().info(f"Deteniendo {nombre}...")
+                try:
+                    if os.name == 'nt':
+                        proceso.terminate()
+                    else:
+                        os.killpg(os.getpgid(proceso.pid), signal.SIGTERM)
+                    proceso.wait(timeout=5)
+                except Exception:
+                    try:
+                        proceso.kill()
+                    except Exception:
+                        pass
+
+        self.bridge_process = None
+        self.gz_process = None
+        self.odom_recibido = False
+        self.scan_recibido = False
+        self.last_scan = None
+
+    def lanzar_gazebo(self, ruta_sdf):
+        """Lanza Gazebo con autoplay (-r)."""
+        if not os.path.exists(ruta_sdf):
+            self.get_logger().error(f"No existe el archivo SDF: {ruta_sdf}")
+            return False
+
+        self.get_logger().info(f"Lanzando Gazebo con mundo: {ruta_sdf}")
+
+        try:
+            if os.name == 'nt':
+                self.gz_process = subprocess.Popen(
+                    ["gz", "sim", "-r", ruta_sdf],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    shell=False
+                )
+            else:
+                self.gz_process = subprocess.Popen(
+                    ["gz", "sim", "-r", ruta_sdf],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=os.setsid
+                )
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Error lanzando Gazebo: {e}")
+            return False
+
+    def lanzar_bridge(self, ruta_worlds):
+        """
+        Lanza el bridge usando bridge_gz.sh.
+        Se ejecuta dentro de la carpeta worlds para que encuentre config_bridge.yaml.
+        """
+        script_bridge = os.path.join(ruta_worlds, "bridge_gz.sh")
+
+        if not os.path.exists(script_bridge):
+            self.get_logger().error(f"No existe el script del bridge: {script_bridge}")
+            return False
+
+        self.get_logger().info(f"Lanzando bridge desde: {script_bridge}")
+
+        try:
+            if os.name == 'nt':
+                # En Windows esto requeriría otro enfoque si bridge_gz.sh está pensado para bash.
+                self.get_logger().error("El script .sh requiere bash; este flujo está pensado para Linux/WSL.")
+                return False
+            else:
+                self.bridge_process = subprocess.Popen(
+                    ["bash", script_bridge],
+                    cwd=ruta_worlds,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=os.setsid
+                )
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Error lanzando bridge: {e}")
+            return False
+
+    def esperar_conexion_simulador(self, timeout=15.0):
+        """
+        Espera a que lleguen datos del robot desde el simulador.
+        """
+        inicio = time.time()
+
+        while time.time() - inicio < timeout:
+            rclpy.spin_once(self, timeout_sec=0.1)
+
+            if self.gz_process and self.gz_process.poll() is not None:
+                self.get_logger().error("Gazebo terminó inesperadamente.")
+                return False
+
+            if self.bridge_process and self.bridge_process.poll() is not None:
+                self.get_logger().error("El bridge terminó inesperadamente.")
+                return False
+
+            if self.odom_recibido and self.scan_recibido:
+                self.get_logger().info("Robot conectado en simulador.")
+                return True
+
+        self.get_logger().warn("Timeout esperando odom y scan_raw desde el simulador.")
+        return False
+    
+
 
     # =======================================================
     # WRAPPERS PARA LOS ESTUDIANTES
@@ -154,24 +295,70 @@ class NavigationNode(Node):
             
         return estado
 
+    # def cargar_escena(self, numero_escena):
+    #     """
+    #     Lee el archivo de la escena indicada y guarda el texto en self.texto_escena.
+    #     """
+    #     # Calculamos la ruta subiendo un nivel de directorio desde este archivo hasta la carpeta 'data'
+    #     directorio_actual = os.path.dirname(os.path.abspath(__file__))
+    #     ruta_archivo = os.path.join(directorio_actual, '..', 'data', f'Escena-Problema{numero_escena}.txt')
+        
+    #     try:
+    #         with open(ruta_archivo, 'r', encoding='utf-8') as archivo:
+    #             self.texto_escena = archivo.read()
+    #         self.get_logger().info(f"Escena {numero_escena} cargada correctamente.")
+    #         # Opcional: imprimir un pedacito para confirmar
+    #         print(f"\n--- Contenido Escena {numero_escena} ---\n{self.texto_escena}\n---------------------------")
+    #     except FileNotFoundError:
+    #         self.get_logger().error(f"No se encontró el archivo: {ruta_archivo}")
+    #     except Exception as e:
+    #         self.get_logger().error(f"Error al leer la escena: {e}")
+
     def cargar_escena(self, numero_escena):
         """
-        Lee el archivo de la escena indicada y guarda el texto en self.texto_escena.
+        1. Carga Escena-ProblemaN.txt
+        2. Lanza worlds/escenaN.sdf en Gazebo con autoplay
+        3. Lanza bridge_gz.sh
+        4. Verifica conexión real del robot
         """
-        # Calculamos la ruta subiendo un nivel de directorio desde este archivo hasta la carpeta 'data'
-        directorio_actual = os.path.dirname(os.path.abspath(__file__))
-        ruta_archivo = os.path.join(directorio_actual, '..', 'data', f'Escena-Problema{numero_escena}.txt')
-        
+        _, ruta_data, ruta_worlds = self.obtener_rutas_base()
+
+        ruta_txt = os.path.join(ruta_data, f'Escena-Problema{numero_escena}.txt')
+        ruta_sdf = os.path.join(ruta_worlds, f'escena{numero_escena}.sdf')
+
+        # 1. Leer TXT
         try:
-            with open(ruta_archivo, 'r', encoding='utf-8') as archivo:
+            with open(ruta_txt, 'r', encoding='utf-8') as archivo:
                 self.texto_escena = archivo.read()
-            self.get_logger().info(f"Escena {numero_escena} cargada correctamente.")
-            # Opcional: imprimir un pedacito para confirmar
+            self.get_logger().info(f"Escena de texto {numero_escena} cargada correctamente.")
             print(f"\n--- Contenido Escena {numero_escena} ---\n{self.texto_escena}\n---------------------------")
         except FileNotFoundError:
-            self.get_logger().error(f"No se encontró el archivo: {ruta_archivo}")
+            self.get_logger().error(f"No se encontró el archivo TXT: {ruta_txt}")
+            return
         except Exception as e:
-            self.get_logger().error(f"Error al leer la escena: {e}")
+            self.get_logger().error(f"Error al leer la escena TXT: {e}")
+            return
+
+        # 2. Detener simulación anterior si existe
+        self.detener_simulacion()
+
+        # 3. Lanzar Gazebo
+        if not self.lanzar_gazebo(ruta_sdf):
+            return
+
+        # Espera inicial para que Gazebo arranque bien
+        time.sleep(3)
+
+        # 4. Lanzar bridge
+        if not self.lanzar_bridge(ruta_worlds):
+            self.detener_simulacion()
+            return
+
+        # 5. Esperar sensores/odometría
+        if self.esperar_conexion_simulador(timeout=15.0):
+            print("\n✅ Robot conectado en simulador\n")
+        else:
+            print("\n⚠️ No se pudo confirmar conexión con el robot en simulador\n")
 
     # =======================================================
     # BUCLE PRINCIPAL (Área de trabajo del estudiante)
@@ -286,6 +473,7 @@ def main(args=None):
         # Detener motores forzosamente si se presiona Ctrl+C
         node.cmd_pub.publish(Twist())
     finally:
+        node.detener_simulacion()
         node.destroy_node()
         rclpy.shutdown()
 

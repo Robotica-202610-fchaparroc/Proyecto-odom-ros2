@@ -1,0 +1,347 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.6">
+  <world name="pioneer3_world">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact">
+    </plugin>
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <include>
+      <uri>mentorpi.sdf</uri>
+      <pose>0.75 0.75 0 0 0 0</pose>
+    </include>
+    <model name="q0_indicator">
+      <static>true</static>
+      <pose>0.75 0.75 0.001 0 0 0</pose>
+      <link name="q0_indicator_link">
+        <visual name="q0_indicator_visual">
+          <geometry>
+            <plane>
+              <size>0.5 0.5</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.5 0.9 0.9 1</ambient>
+            <diffuse>0.5 0.9 0.9 1</diffuse>
+            <specular>0.5 0.9 0.9 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="qf_indicator">
+      <static>true</static>
+      <pose>3.25 4.25 0.001 0 0 0</pose>
+      <link name="qf_indicator_link">
+        <visual name="qf_indicator_visual">
+          <geometry>
+            <plane>
+              <size>0.5 0.5</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.5 0.9 0.5 1</ambient>
+            <diffuse>0.5 0.9 0.5 1</diffuse>
+            <specular>0.5 0.9 0.5 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="static_environment">
+      <static>true</static>
+      <link name="walls_link">
+        <collision name="obst1_col">
+          <pose>2.75 0.25 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="obst1_vis">
+          <pose>2.75 0.25 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.4 0.4 0.4 1</ambient>
+            <diffuse>0.4 0.4 0.4 1</diffuse>
+          </material>
+        </visual>
+        <collision name="obst2_col">
+          <pose>0.75 4.75 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="obst2_vis">
+          <pose>0.75 4.75 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.4 0.4 0.4 1</ambient>
+            <diffuse>0.4 0.4 0.4 1</diffuse>
+          </material>
+        </visual>
+        <collision name="obst3_col">
+          <pose>1.75 1.75 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="obst3_vis">
+          <pose>1.75 1.75 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.4 0.4 0.4 1</ambient>
+            <diffuse>0.4 0.4 0.4 1</diffuse>
+          </material>
+        </visual>
+        <collision name="obst4_col">
+          <pose>3.25 1.75 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="obst4_vis">
+          <pose>3.25 1.75 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.4 0.4 0.4 1</ambient>
+            <diffuse>0.4 0.4 0.4 1</diffuse>
+          </material>
+        </visual>
+        <collision name="obst5_col">
+          <pose>1.75 3.25 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="obst5_vis">
+          <pose>1.75 3.25 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.4 0.4 0.4 1</ambient>
+            <diffuse>0.4 0.4 0.4 1</diffuse>
+          </material>
+        </visual>
+        <collision name="obst6_col">
+          <pose>3.75 0.75 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="obst6_vis">
+          <pose>3.75 0.75 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.4 0.4 0.4 1</ambient>
+            <diffuse>0.4 0.4 0.4 1</diffuse>
+          </material>
+        </visual>
+        <collision name="obstLoc1_col">
+          <pose>4.1 4 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.2 2 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="obstLoc1_vis">
+          <pose>4.1 4 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.2 2 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.1 0.9 0.9 1</ambient>
+            <diffuse>0.1 0.9 0.9 1</diffuse>
+            <specular>0.1 0.9 0.9 1</specular>
+          </material>
+        </visual>
+        <collision name="obstLoc2_col">
+          <pose>3 5.1 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>2 0.2 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="obstLoc2_vis">
+          <pose>3 5.1 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>2 0.2 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.1 0.9 0.9 1</ambient>
+            <diffuse>0.1 0.9 0.9 1</diffuse>
+            <specular>0.1 0.9 0.9 1</specular>
+          </material>
+        </visual>
+        <collision name="box_up_col">
+          <pose>1 5.05 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>2 0.1 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="box_up_vis">
+          <pose>1 5.05 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>2 0.1 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.55 0.4 0.4 1</ambient>
+            <diffuse>0.55 0.4 0.4 1</diffuse>
+            <specular>0.55 0.4 0.4 1</specular>
+          </material>
+        </visual>
+        <collision name="box_down_col">
+          <pose>2 -0.05 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>4 0.1 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="box_down_vis">
+          <pose>2 -0.05 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>4 0.1 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.55 0.4 0.4 1</ambient>
+            <diffuse>0.55 0.4 0.4 1</diffuse>
+            <specular>0.55 0.4 0.4 1</specular>
+          </material>
+        </visual>
+        <collision name="box_left_col">
+          <pose>-0.05 2.5 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.1 5 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="box_left_vis">
+          <pose>-0.05 2.5 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.1 5 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.55 0.4 0.4 1</ambient>
+            <diffuse>0.55 0.4 0.4 1</diffuse>
+            <specular>0.55 0.4 0.4 1</specular>
+          </material>
+        </visual>
+        <collision name="box_right_col">
+          <pose>4.05 1.5 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.1 3 0.5</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="box_right_vis">
+          <pose>4.05 1.5 0.25 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.1 3 0.5</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.55 0.4 0.4 1</ambient>
+            <diffuse>0.55 0.4 0.4 1</diffuse>
+            <specular>0.55 0.4 0.4 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

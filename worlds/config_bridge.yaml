@@ -1,0 +1,72 @@
+# --- SYSTEM & TIME ---
+- topic_name: /clock
+  ros_type_name: rosgraph_msgs/msg/Clock
+  gz_type_name: gz.msgs.Clock
+  direction: GZ_TO_ROS
+
+- topic_name: /stats
+  ros_type_name: ros_gz_interfaces/msg/WorldStatistics
+  gz_type_name: gz.msgs.WorldStatistics
+  direction: GZ_TO_ROS
+
+# --- ROBOT CONTROL ---
+- topic_name: /cmd_vel
+  ros_type_name: geometry_msgs/msg/Twist
+  gz_type_name: gz.msgs.Twist
+  direction: ROS_TO_GZ
+
+# --- ROBOT SENSORS ---
+# IMU
+- topic_name: /imu/data
+  ros_type_name: sensor_msgs/msg/Imu
+  gz_type_name: gz.msgs.IMU
+  direction: GZ_TO_ROS
+
+# LiDAR
+- gz_topic_name: /scan
+  ros_topic_name: /scan_raw
+  ros_type_name: sensor_msgs/msg/LaserScan
+  gz_type_name: gz.msgs.LaserScan
+  direction: GZ_TO_ROS
+
+- topic_name: /scan/points
+  ros_type_name: sensor_msgs/msg/PointCloud2
+  gz_type_name: gz.msgs.PointCloudPacked
+  direction: GZ_TO_ROS
+
+# Odometry
+- gz_topic_name: /odom/unfiltered
+  ros_topic_name: /odom
+  ros_type_name: nav_msgs/msg/Odometry
+  gz_type_name: gz.msgs.Odometry
+  direction: GZ_TO_ROS
+
+# Joint States
+- topic_name: /joint_states
+  ros_type_name: sensor_msgs/msg/JointState
+  gz_type_name: gz.msgs.Model
+  direction: GZ_TO_ROS
+
+# --- CAMERA (RGBD) ---
+# Note: I have applied your launch file remappings here directly.
+# The 'topic_name' is the shared name if they match, but since we are remapping,
+# we separate gz_topic_name (Source) and ros_topic_name (Target).
+
+- gz_topic_name: /camera_info
+  ros_topic_name: /ascamera/camera_publisher/rgb0/camera_info
+  ros_type_name: sensor_msgs/msg/CameraInfo
+  gz_type_name: gz.msgs.CameraInfo
+  direction: GZ_TO_ROS
+
+- gz_topic_name: /camera
+  ros_topic_name: /ascamera/camera_publisher/rgb0/image
+  ros_type_name: sensor_msgs/msg/Image
+  gz_type_name: gz.msgs.Image
+  direction: GZ_TO_ROS
+
+# --- TF & POSES ---
+- gz_topic_name: /model/mentorpi/tf
+  ros_topic_name: /tf
+  ros_type_name: tf2_msgs/msg/TFMessage
+  gz_type_name: gz.msgs.Pose_V
+  direction: GZ_TO_ROS
