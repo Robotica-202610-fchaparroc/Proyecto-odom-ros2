@@ -38,6 +38,42 @@ def orientacion_a_texto(o: int) -> str:
     }.get(o, str(o))
 
 
+def distancia_a_obstaculo_mas_cercano(matriz, fila, col):
+    """
+    Distancia Manhattan a la celda ocupada ('O') más cercana.
+    """
+    filas = len(matriz)
+    columnas = len(matriz[0]) if filas > 0 else 0
+
+    mejor = float("inf")
+
+    for f in range(filas):
+        for c in range(columnas):
+            if matriz[f][c] == "O":
+                d = abs(fila - f) + abs(col - c)
+                if d < mejor:
+                    mejor = d
+
+    return mejor
+
+
+def costo_avanzar_con_clearance(matriz, fila, col):
+    """
+    Menor distancia a obstáculos => mayor costo.
+    Esto hace que las celdas mas cercanas a los obstáculos tengan mas costo, y asi se evita pasar 
+    muy cerca de los obstaculos aunque se pueda, priorizando seguridad del robot.
+    """
+    d = distancia_a_obstaculo_mas_cercano(matriz, fila, col)
+
+    if d <= 1:
+        return 6.0
+    if d == 2:
+        return 4.0
+    if d == 3:
+        return 2.0
+    return 1.0
+
+
 def heuristica(estado, meta):
     """
     Heurística Manhattan sobre fila/columna.
@@ -91,11 +127,8 @@ def vecinos_estado(estado, matriz, estados_transitables=("L",)):
     nueva_col = col + dc
 
     if es_transitable(matriz, nueva_fila, nueva_col, estados_transitables):
-        vecinos.append((
-            (nueva_fila, nueva_col, orient),
-            "AVANZAR",
-            1
-        ))
+        costo_avance = costo_avanzar_con_clearance(matriz, nueva_fila, nueva_col)
+        vecinos.append(((nueva_fila, nueva_col, orient), "AVANZAR", costo_avance))
 
     return vecinos
 
