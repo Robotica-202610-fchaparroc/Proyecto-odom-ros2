@@ -1,75 +1,75 @@
-import rclpy
-from rclpy.node import Node
-from nav_msgs.msg import Odometry
-from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import Twist
 import math
-import threading
 import os
-import subprocess
-import time
 import signal
+import subprocess
+import threading
+import time
+
+import rclpy
 from ament_index_python.packages import get_package_share_directory
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+from rclpy.node import Node
+from sensor_msgs.msg import LaserScan
 
 from .logic.lidar import obtener_distancia_angulo, obtener_distancias_rango
-from .logic.movement import calcular_rotacion, calcular_movimiento_relativo
+from .logic.movement import calcular_movimiento_relativo, calcular_rotacion
+
 
 class NavigationNode(Node):
     def __init__(self):
         super().__init__('student_navigation')
-        
+
         # Procesos externos
         self.gz_process = None
         self.bridge_process = None
 
-        # Estado de conexión con simulador gazebo
+        # Estado conexión simulador
         self.odom_recibido = False
         self.scan_recibido = False
-        self.esperando_conexion_sim = False
-        self.tiempo_inicio_espera_sim = None
+        self.esperando_conexion = False
+        self.tiempo_inicio_espera = None
         self.mensaje_pendiente = None
-        self.input_activo = False
 
-        # Suscriptores
-        self.odom_sub = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
-        self.lidar_sub = self.create_subscription(LaserScan, 'scan_raw', self.lidar_callback, 10)
-        
-        # Publicador
-        self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', 10)
-        
-        # Variables de estado interno
+        # Estado robot
         self.current_x = 0.0
         self.current_y = 0.0
         self.current_theta = 0.0
         self.last_scan = None
-        
-        # Memorias de estado para los movimientos relativos
+
+        # Estado movimientos relativos
         self.target_theta_relativo = None
-        self.pose_inicial_relativa = None 
-        
-        # Variable para almacenar el texto crudo de la escena
+        self.pose_inicial_relativa = None
+        self.tiempo_maniobra = 0.0
+
+        # Escena cargada
         self.texto_escena = ""
-        
-        # Variables para comunicar el menú interactivo con el control loop
+
+        # Estado menú/comandos
         self.comando_activo = None
         self.parametros_comando = []
-        
-        # Timer (El loop de control corre 10 veces por segundo)
-        self.timer = self.create_timer(0.1, self.control_loop)
-        self.get_logger().info("Nodo de Navegación Estudiantil Iniciado.")
 
-        # Iniciamos el menú en un hilo separado para NO bloquear a ROS2
+        # ROS interfaces
+        self.odom_sub = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
+        self.lidar_sub = self.create_subscription(LaserScan, 'scan_raw', self.lidar_callback, 10)
+        self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+
+        # Timer principal
+        self.timer = self.create_timer(0.1, self.control_loop)
+        self.get_logger().info("Nodo de Navegación Estudiantil iniciado.")
+
+        # Menú en hilo aparte
         self.hilo_menu = threading.Thread(target=self.menu_interactivo, daemon=True)
         self.hilo_menu.start()
 
     # =======================================================
-    # CALLBACKS DE ROS2
+    # CALLBACKS ROS2
     # =======================================================
     def odom_callback(self, msg):
         self.odom_recibido = True
         self.current_x = msg.pose.pose.position.x
         self.current_y = msg.pose.pose.position.y
-        
+
         qz = msg.pose.pose.orientation.z
         qw = msg.pose.pose.orientation.w
         self.current_theta = 2.0 * math.atan2(qz, qw)
@@ -78,35 +78,38 @@ class NavigationNode(Node):
         self.scan_recibido = True
         self.last_scan = msg
 
-##############################################
-# RUTAS NUEVAS
+    # =======================================================
+    # RUTAS Y PROCESOS
+    # =======================================================
     def obtener_rutas_base(self):
         package_share = get_package_share_directory('proyecto2')
         ruta_data = os.path.join(package_share, 'data')
         ruta_worlds = os.path.join(package_share, 'worlds')
-        return package_share, ruta_data, ruta_worlds
-    
-    def detener_gazebo(self):
-        if self.gz_process and self.gz_process.poll() is None:
-            self.get_logger().info("Deteniendo Gazebo anterior...")
+        return ruta_data, ruta_worlds
+
+    def _detener_proceso(self, proceso, nombre):
+        if not proceso or proceso.poll() is not None:
+            return None
+
+        self.get_logger().info(f"Deteniendo {nombre}...")
+        try:
+            if os.name == 'nt':
+                proceso.terminate()
+            else:
+                os.killpg(os.getpgid(proceso.pid), signal.SIGTERM)
+            proceso.wait(timeout=5)
+        except Exception:
             try:
                 if os.name == 'nt':
-                    self.gz_process.terminate()
+                    proceso.kill()
                 else:
-                    os.killpg(os.getpgid(self.gz_process.pid), signal.SIGTERM)
-                self.gz_process.wait(timeout=5)
+                    os.killpg(os.getpgid(proceso.pid), signal.SIGKILL)
             except Exception:
-                try:
-                    if os.name != 'nt':
-                        os.killpg(os.getpgid(self.gz_process.pid), signal.SIGKILL)
-                    else:
-                        self.gz_process.kill()
-                except Exception:
-                    pass
+                pass
+        return None
 
-        self.gz_process = None
-
-        # opcional: matar cualquier gz sim residual
+    def detener_gazebo(self):
+        self.gz_process = self._detener_proceso(self.gz_process, "Gazebo")
         if os.name != 'nt':
             try:
                 subprocess.run(["pkill", "-f", "gz sim"], check=False)
@@ -114,111 +117,60 @@ class NavigationNode(Node):
                 pass
 
     def detener_bridge(self):
-        if self.bridge_process and self.bridge_process.poll() is None:
-            self.get_logger().info("Deteniendo bridge...")
-            try:
-                if os.name == 'nt':
-                    self.bridge_process.terminate()
-                else:
-                    os.killpg(os.getpgid(self.bridge_process.pid), signal.SIGTERM)
-                self.bridge_process.wait(timeout=5)
-            except Exception:
-                try:
-                    self.bridge_process.kill()
-                except Exception:
-                    pass
-
-        self.bridge_process = None
-
-    def detener_simulacion(self):
-        """Detiene Gazebo y el bridge si estaban corriendo."""
-        procesos = [
-            (self.bridge_process, "bridge"),
-            (self.gz_process, "gazebo")
-        ]
-
-        for proceso, nombre in procesos:
-            if proceso and proceso.poll() is None:
-                self.get_logger().info(f"Deteniendo {nombre}...")
-                try:
-                    if os.name == 'nt':
-                        proceso.terminate()
-                    else:
-                        os.killpg(os.getpgid(proceso.pid), signal.SIGTERM)
-                    proceso.wait(timeout=5)
-                except Exception:
-                    try:
-                        proceso.kill()
-                    except Exception:
-                        pass
-
-        self.bridge_process = None
-        self.gz_process = None
-        self.odom_recibido = False
-        self.scan_recibido = False
-        self.last_scan = None
+        self.bridge_process = self._detener_proceso(self.bridge_process, "bridge")
 
     def lanzar_gazebo_escena(self, numero_escena):
-        _, _, ruta_worlds = self.obtener_rutas_base()
+        _, ruta_worlds = self.obtener_rutas_base()
         ruta_sdf = os.path.join(ruta_worlds, f'escena{numero_escena}.sdf')
 
         if not os.path.exists(ruta_sdf):
             self.get_logger().error(f"No se encontró el archivo SDF: {ruta_sdf}")
-            return
+            return False
 
         self.detener_gazebo()
         time.sleep(2)
 
-        self.get_logger().info(f"Lanzando Gazebo con: {ruta_sdf}")
-        print(f"\nRuta SDF: {ruta_sdf}\n")
+        print(f"\nLanzando Gazebo con ruta SDF: {ruta_sdf}")
 
         try:
             log_path = os.path.join(ruta_worlds, "gazebo_launch.log")
             log_file = open(log_path, "w")
             env = os.environ.copy()
-
-            # Agregar carpeta worlds al path de recursos de Gazebo
             env["GZ_SIM_RESOURCE_PATH"] = ruta_worlds + ":" + env.get("GZ_SIM_RESOURCE_PATH", "")
 
-            if os.name == 'nt':
-                self.gz_process = subprocess.Popen(
-                    ["gz", "sim", "-r", ruta_sdf],
-                    stdin=subprocess.DEVNULL,
-                    stdout=log_file,
-                    stderr=log_file
-                )
-            else:
-                self.gz_process = subprocess.Popen(
-                    ["gz", "sim", "-r", ruta_sdf],
-                    cwd=ruta_worlds,
-                    env=env,
-                    stdin=subprocess.DEVNULL,
-                    stdout=log_file,
-                    stderr=log_file,
-                    preexec_fn=os.setsid
-                )
+            kwargs = {
+                "stdin": subprocess.DEVNULL,
+                "stdout": log_file,
+                "stderr": log_file,
+            }
 
-            print("\nSe lanzó el proceso de Gazebo\n")
-            self.get_logger().info(f"Gazebo lanzado con escena {numero_escena} en autoplay.")
-            print(f"\n✅ Gazebo lanzado con escena{numero_escena}.sdf\n")
-            print(f"Log de Gazebo: {log_path}\n")
+            if os.name != 'nt':
+                kwargs.update({
+                    "cwd": ruta_worlds,
+                    "env": env,
+                    "preexec_fn": os.setsid
+                })
+
+            self.gz_process = subprocess.Popen(["gz", "sim", "-r", ruta_sdf], **kwargs)
+
+            print(f"✅ Gazebo lanzado con escena {numero_escena} en autoplay.")
+            return True
 
         except Exception as e:
             self.get_logger().error(f"Error al lanzar Gazebo: {e}")
+            return False
 
     def lanzar_bridge(self):
-        _, _, ruta_worlds = self.obtener_rutas_base()
-
+        _, ruta_worlds = self.obtener_rutas_base()
         script_path = os.path.join(ruta_worlds, "bridge_gz.sh")
 
         if not os.path.exists(script_path):
             self.get_logger().error(f"No se encontró bridge_gz.sh en: {script_path}")
-            return
+            return False
 
         self.detener_bridge()
+        print("\nLanzando bridge ROS2")
 
-        self.get_logger().info("Lanzando bridge ROS2 <-> Gazebo...")
-        
         try:
             log_path = os.path.join(ruta_worlds, "bridge.log")
             log_file = open(log_path, "w")
@@ -228,148 +180,106 @@ class NavigationNode(Node):
 
             if os.name == 'nt':
                 self.get_logger().error("bridge_gz.sh requiere bash (usar Linux o WSL)")
-                return
-            else:
-                self.bridge_process = subprocess.Popen(
-                    ["bash", script_path],
-                    cwd=ruta_worlds,
-                    env=env,
-                    stdin=subprocess.DEVNULL,
-                    stdout=log_file,
-                    stderr=log_file,
-                    preexec_fn=os.setsid
-                )
+                return False
 
-            self.get_logger().info("Bridge lanzado correctamente.")
-            print(f"\n✅ Bridge Ros2 Ejecutado correctamente\n")
-            print(f"Log del bridge: {log_path}\n")
+            self.bridge_process = subprocess.Popen(
+                ["bash", script_path],
+                cwd=ruta_worlds,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=log_file,
+                preexec_fn=os.setsid
+            )
+
+            print("✅ Bridge lanzado correctamente.")
+            return True
 
         except Exception as e:
             self.get_logger().error(f"Error al lanzar el bridge: {e}")
-
-
-    def esperar_conexion_simulador(self, timeout=15.0):
-        """
-        Espera a que lleguen datos del robot desde el simulador.
-        """
-        inicio = time.time()
-
-        while time.time() - inicio < timeout:
-            rclpy.spin_once(self, timeout_sec=0.1)
-
-            if self.gz_process and self.gz_process.poll() is not None:
-                self.get_logger().error("Gazebo terminó inesperadamente.")
-                return False
-
-            if self.bridge_process and self.bridge_process.poll() is not None:
-                self.get_logger().error("El bridge terminó inesperadamente.")
-                return False
-
-            if self.odom_recibido and self.scan_recibido:
-                self.mensaje_pendiente = "✅ Robot conectado en simulador"
-                return True
-
-        self.get_logger().warn("Timeout esperando odom y scan_raw desde el simulador.")
-        return False
-    
-
+            return False
 
     # =======================================================
     # WRAPPERS PARA LOS ESTUDIANTES
     # =======================================================
     def leer_distancia_en_angulo(self, grados):
-        """Retorna la distancia (en metros) de un ángulo específico del Lidar."""
         return obtener_distancia_angulo(self.last_scan, math.radians(grados))
 
     def leer_distancia_direccion(self, direccion):
-        """
-        Retorna la distancia en una dirección cardinal específica:
-        'frente', 'atras', 'izquierda', 'derecha'.
-        """
         mapa_direcciones = {
             'frente': 0.0,
             'izquierda': 90.0,
             'derecha': 270.0,
             'atras': 180.0
         }
-        
+
         direccion = direccion.lower()
-        if direccion in mapa_direcciones:
-            return self.leer_distancia_en_angulo(mapa_direcciones[direccion])
-        else:
+        if direccion not in mapa_direcciones:
             self.get_logger().error(f"Dirección '{direccion}' no válida.")
             return float('inf')
 
+        return self.leer_distancia_en_angulo(mapa_direcciones[direccion])
+
     def leer_distancias_en_rango(self, grados_min, grados_max):
-        """Retorna una lista con todas las detecciones en un rango visual."""
         return obtener_distancias_rango(self.last_scan, grados_min, grados_max)
 
     def rotar_relativo(self, grados_relativos, tolerancia=0.05):
-        """
-        Gira el robot de forma relativa (ej: 90 grados a la izquierda).
-        Retorna True si la maniobra ya finalizó.
-        """
         if self.target_theta_relativo is None:
-            # Capturamos el ángulo base al arrancar la maniobra
             self.target_theta_relativo = self.current_theta + math.radians(grados_relativos)
-            
-        cmd, completado = calcular_rotacion(self.current_theta, self.target_theta_relativo, tolerancia=tolerancia)
+
+        cmd, completado = calcular_rotacion(
+            self.current_theta,
+            self.target_theta_relativo,
+            tolerancia=tolerancia
+        )
         self.cmd_pub.publish(cmd)
-        
+
         if completado:
-            # Reseteamos la meta para que el robot pueda volver a girar en el futuro
-            self.target_theta_relativo = None 
-            
+            self.target_theta_relativo = None
+
         return completado
 
     def mover_relativo(self, distancia_x_metros, distancia_y_metros, cono_vision=30, dist_segura=0.3, vel_lineal=0.4):
-        """
-        Desplazamiento usando Cinemática de Tiempo (Dead Reckoning).
-        Evalúa el obstáculo según la dirección (Adelante, Atrás, Lados).
-        """
-        # 1. Inicializamos el cronómetro al arrancar la orden
         if self.pose_inicial_relativa is None:
-            self.pose_inicial_relativa = True # Lo usamos como bandera de inicio
-            self.tiempo_maniobra = 0.0        # Cronómetro en segundos
+            self.pose_inicial_relativa = True
+            self.tiempo_maniobra = 0.0
 
-        # 2. Determinar hacia dónde nos vamos a mover para vigilar ESA dirección
         if abs(distancia_x_metros) >= abs(distancia_y_metros):
             if distancia_x_metros >= 0:
-                # Movimiento hacia el FRENTE
                 cono_despejado = self.leer_distancias_en_rango(-cono_vision, cono_vision)
             else:
-                # Movimiento hacia ATRÁS (El Lidar ROS2 va de -180 a 180, unimos los dos extremos)
-                cono_despejado = self.leer_distancias_en_rango(180-cono_vision, 180) + self.leer_distancias_en_rango(-180, -180+cono_vision)
+                cono_despejado = (
+                    self.leer_distancias_en_rango(180 - cono_vision, 180)
+                    + self.leer_distancias_en_rango(-180, -180 + cono_vision)
+                )
         else:
             if distancia_y_metros > 0:
-                # Movimiento hacia la IZQUIERDA
-                cono_despejado = self.leer_distancias_en_rango(90-cono_vision, 90+cono_vision)
+                cono_despejado = self.leer_distancias_en_rango(90 - cono_vision, 90 + cono_vision)
             else:
-                # Movimiento hacia la DERECHA
-                cono_despejado = self.leer_distancias_en_rango(270-cono_vision, 270+cono_vision)
+                cono_despejado = self.leer_distancias_en_rango(270 - cono_vision, 270 + cono_vision)
 
-        # 3. Calcular movimiento basado en tiempo
         cmd, estado = calcular_movimiento_relativo(
             self.tiempo_maniobra,
-            distancia_x_metros, distancia_y_metros,
+            distancia_x_metros,
+            distancia_y_metros,
             cono_despejado,
             dist_segura=dist_segura,
             vel_lineal=vel_lineal
         )
         self.cmd_pub.publish(cmd)
-        
-        # 4. Sumamos el tiempo de este ciclo (nuestro timer general corre a 0.1s)
         self.tiempo_maniobra += 0.1
-        
-        # 5. Si terminamos o nos bloqueamos, limpiamos todo para el próximo comando
+
         if estado in ['COMPLETADO', 'BLOQUEADO']:
             self.pose_inicial_relativa = None
             self.tiempo_maniobra = 0.0
-            
+
         return estado
 
+    # =======================================================
+    # ESCENAS Y SIMULADOR
+    # =======================================================
     def cargar_escena_txt(self, numero_escena):
-        _, ruta_data, _ = self.obtener_rutas_base()
+        ruta_data, _ = self.obtener_rutas_base()
         ruta_txt = os.path.join(ruta_data, f'Escena-Problema{numero_escena}.txt')
 
         if not os.path.exists(ruta_txt):
@@ -380,9 +290,10 @@ class NavigationNode(Node):
             with open(ruta_txt, 'r', encoding='utf-8') as archivo:
                 self.texto_escena = archivo.read()
 
-            self.get_logger().info(f"✅ Escena de texto {numero_escena} cargada correctamente.")
-            print(f"\n--- Contenido Escena {numero_escena} ---")
-            print(self.texto_escena)
+            print(f"\n✅ Escena de texto {numero_escena} cargada correctamente.")
+            print(f"--- Resumen Escena {numero_escena} ---")
+            lineas = self.texto_escena.splitlines()
+            print("\n".join(lineas[:10]))
             print("---------------------------\n")
             return True
 
@@ -391,112 +302,132 @@ class NavigationNode(Node):
             return False
 
     def iniciar_escena_completa(self, numero_escena):
-        """
-        1. Carga Escena-ProblemaN.txt
-        2. Lanza worlds/escenaN.sdf en Gazebo con autoplay
-        3. Lanza bridge_gz.sh
-        4. Verifica conexión real del robot
-        """
+        self.odom_recibido = False
+        self.scan_recibido = False
+        self.esperando_conexion = False
+        self.tiempo_inicio_espera = None
 
-        # 1. Lanzar Gazebo con escena .sdf
-        self.lanzar_gazebo_escena(numero_escena)
-
-        # Pequeña espera para que el mundo arranque
-        time.sleep(3)
-
-        # 2. Lanzar bridge
-        self.lanzar_bridge()
-
-        time.sleep(3)
-
-        # 3. Cargar escena TXT
-        ok_txt = self.cargar_escena_txt(numero_escena)
-        if not ok_txt:
+        if not self.lanzar_gazebo_escena(numero_escena):
             return
 
-        # 5. Esperar sensores/odometría
+        time.sleep(3)
 
+        if not self.lanzar_bridge():
+            return
+
+        time.sleep(3)
+
+        if not self.cargar_escena_txt(numero_escena):
+            return
+
+        self.esperando_conexion = True
+        self.tiempo_inicio_espera = time.time()
+
+        print("⏳ Esperando conexión con el robot...")
+
+        while self.esperando_conexion and rclpy.ok():
+            time.sleep(0.2)
+
+        if self.mensaje_pendiente:
+            print(f"{self.mensaje_pendiente}\n")
+            self.mensaje_pendiente = None
 
     # =======================================================
-    # BUCLE PRINCIPAL (Área de trabajo del estudiante)
+    # MENÚ
     # =======================================================
     def menu_interactivo(self):
-        """Pide input por consola sin interrumpir la recepción de datos de los sensores."""
         while rclpy.ok():
-            if self.comando_activo is None:
-                if self.mensaje_pendiente:
-                    print(f"\n{self.mensaje_pendiente}\n")
-                    self.mensaje_pendiente = None
+            if self.comando_activo is not None:
+                time.sleep(0.1)
+                continue
 
-                print("\n" + "="*35)
-                print("--- MENÚ DE NAVEGACIÓN ---")
-                print("1. Leer distancia en un ángulo")
-                print("2. Leer distancias en un rango")
-                print("3. Rotar grados relativos")
-                print("4. Mover relativo a la posición (X, Y)")
-                print("5. Cargar e iniciar simulador con escena")
-                print("6. Leer distancia por dirección (Frente, Atras, Izquierda, Derecha)")
-                print("7. Lanzar Gazebo con escena SDF")
-                print("8. Lanzar bridge ROS2 <-> Gazebo")
-                print("="*35)
-                
-                try:
-                    self.input_activo = True
-                    opcion = input("Elige una opción (1-8): ")
-                    self.input_activo = False
-                    
-                    if opcion == '1':
-                        angulo = float(input("Ingresa el ángulo (en grados): "))
-                        self.parametros_comando = [angulo]
-                        self.comando_activo = 1
-                    
-                    elif opcion == '2':
-                        ang_min = float(input("Ángulo mínimo (ej. -30): "))
-                        ang_max = float(input("Ángulo máximo (ej. 30): "))
-                        self.parametros_comando = [ang_min, ang_max]
-                        self.comando_activo = 2
-                    
-                    elif opcion == '3':
-                        grados = float(input("¿Cuántos grados quieres rotar? (Positivo=Izq, Negativo=Der): "))
-                        self.parametros_comando = [grados]
-                        self.comando_activo = 3
-                    
-                    elif opcion == '4':
-                        x = float(input("Cuánto avanzar en X (Frente/Atrás) [en metros]: "))
-                        y = float(input("Cuánto avanzar en Y (Izquierda/Derecha) [en metros]: "))
-                        self.parametros_comando = [x, y]
-                        self.comando_activo = 4
+            if self.mensaje_pendiente:
+                print(f"\n{self.mensaje_pendiente}\n")
+                self.mensaje_pendiente = None
 
-                    elif opcion == '5':
-                        numero = int(input("Ingresa el número de la escena (1-6): "))
-                        self.iniciar_escena_completa(numero)
+            print("\n" + "=" * 35)
+            print("--- MENÚ DE NAVEGACIÓN ---")
+            print("1. Leer distancia en un ángulo")
+            print("2. Leer distancias en un rango")
+            print("3. Rotar grados relativos")
+            print("4. Mover relativo a la posición (X, Y)")
+            print("5. Cargar e iniciar simulador con escena")
+            print("6. Leer distancia por dirección (Frente, Atras, Izquierda, Derecha)")
+            print("7. Lanzar Gazebo con escena SDF")
+            print("8. Lanzar bridge ROS2 <-> Gazebo")
+            print("=" * 35)
 
-                    elif opcion == '6':
-                        dir_input = input("¿Qué dirección? (frente, atras, izquierda, derecha): ").strip().lower()
-                        if dir_input in ['frente', 'atras', 'izquierda', 'derecha']:
-                            self.parametros_comando = [dir_input]
-                            self.comando_activo = 6
-                        else:
-                            print("Dirección no válida. Intenta de nuevo.")
-                    
-                    elif opcion == '7':
-                        numero = int(input("Ingresa el número de la escena SDF (1-6): "))
-                        self.lanzar_gazebo_escena(numero)
-                    
-                    elif opcion == '8':
-                        self.lanzar_bridge()
-                    
+            try:
+                opcion = input("Elige una opción (1-8): ")
+
+                if opcion == '1':
+                    angulo = float(input("Ingresa el ángulo (en grados): "))
+                    self.parametros_comando = [angulo]
+                    self.comando_activo = 1
+
+                elif opcion == '2':
+                    ang_min = float(input("Ángulo mínimo (ej. -30): "))
+                    ang_max = float(input("Ángulo máximo (ej. 30): "))
+                    self.parametros_comando = [ang_min, ang_max]
+                    self.comando_activo = 2
+
+                elif opcion == '3':
+                    grados = float(input("¿Cuántos grados quieres rotar? (Positivo=Izq, Negativo=Der): "))
+                    self.parametros_comando = [grados]
+                    self.comando_activo = 3
+
+                elif opcion == '4':
+                    x = float(input("Cuánto avanzar en X (Frente/Atrás) [en metros]: "))
+                    y = float(input("Cuánto avanzar en Y (Izquierda/Derecha) [en metros]: "))
+                    self.parametros_comando = [x, y]
+                    self.comando_activo = 4
+
+                elif opcion == '5':
+                    numero = int(input("Ingresa el número de la escena (1-6): "))
+                    self.iniciar_escena_completa(numero)
+
+                elif opcion == '6':
+                    direccion = input("¿Qué dirección? (frente, atras, izquierda, derecha): ").strip().lower()
+                    if direccion in ['frente', 'atras', 'izquierda', 'derecha']:
+                        self.parametros_comando = [direccion]
+                        self.comando_activo = 6
                     else:
-                        print("Opción no válida. Intenta de nuevo.")
-                        
-                except ValueError:
-                    print("Por favor, ingresa únicamente números válidos.")
+                        print("Dirección no válida. Intenta de nuevo.")
+
+                elif opcion == '7':
+                    numero = int(input("Ingresa el número de la escena SDF (1-6): "))
+                    self.lanzar_gazebo_escena(numero)
+
+                elif opcion == '8':
+                    self.lanzar_bridge()
+
+                else:
+                    print("Opción no válida. Intenta de nuevo.")
+
+            except ValueError:
+                print("Por favor, ingresa únicamente números válidos.")
 
     # =======================================================
-    # BUCLE PRINCIPAL DE CONTROL
+    # CONTROL LOOP
     # =======================================================
     def control_loop(self):
-        # Evitar fallos si no hay datos del sensor todavía
+        if self.esperando_conexion:
+            if self.gz_process and self.gz_process.poll() is not None:
+                self.mensaje_pendiente = "❌ Gazebo se cerró inesperadamente."
+                self.esperando_conexion = False
+
+            elif self.bridge_process and self.bridge_process.poll() is not None:
+                self.mensaje_pendiente = "❌ El bridge se cerró inesperadamente."
+                self.esperando_conexion = False
+
+            elif self.odom_recibido and self.scan_recibido:
+                self.mensaje_pendiente = "✅ Robot conectado en simulador"
+                self.esperando_conexion = False
+
+            elif time.time() - self.tiempo_inicio_espera > 15.0:
+                self.mensaje_pendiente = "⚠️ No se pudo confirmar conexión con el robot"
+                self.esperando_conexion = False
+
         if self.last_scan is None:
             return
 
@@ -504,30 +435,26 @@ class NavigationNode(Node):
             dist = self.leer_distancia_en_angulo(self.parametros_comando[0])
             self.get_logger().info(f"Distancia a {self.parametros_comando[0]}°: {dist:.2f} m")
             self.comando_activo = None
-            
+
         elif self.comando_activo == 2:
             distancias = self.leer_distancias_en_rango(self.parametros_comando[0], self.parametros_comando[1])
             self.get_logger().info(f"Distancias detectadas: {distancias}")
             self.comando_activo = None
-            
+
         elif self.comando_activo == 3:
             if self.rotar_relativo(self.parametros_comando[0]):
                 self.get_logger().info("Rotación completada exitosamente.")
                 self.comando_activo = None
-                
+
         elif self.comando_activo == 4:
             estado = self.mover_relativo(self.parametros_comando[0], self.parametros_comando[1])
-            
+
             if estado == 'COMPLETADO':
                 self.get_logger().info("Desplazamiento relativo completado.")
                 self.comando_activo = None
             elif estado == 'BLOQUEADO':
                 self.get_logger().warn("¡Obstáculo detectado! Ruta bloqueada. Abortando movimiento.")
                 self.comando_activo = None
-        
-        elif self.comando_activo == 5:
-            self.cargar_escena_txt(self.parametros_comando[0])
-            self.comando_activo = None
 
         elif self.comando_activo == 6:
             direccion = self.parametros_comando[0]
@@ -535,18 +462,20 @@ class NavigationNode(Node):
             self.get_logger().info(f"Distancia hacia el {direccion.upper()}: {dist:.2f} m")
             self.comando_activo = None
 
+
 def main(args=None):
     rclpy.init(args=args)
     node = NavigationNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        # Detener motores forzosamente si se presiona Ctrl+C
         node.cmd_pub.publish(Twist())
     finally:
+        node.detener_bridge()
         node.detener_gazebo()
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
