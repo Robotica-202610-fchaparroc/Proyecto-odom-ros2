@@ -284,6 +284,26 @@ def graficar_cspace_discretizado_multi(resultado, plan=None):
             zorder=10
         )
 
+        # 🔥 AQUÍ VAN LAS FLECHAS
+        for fila, col, orient in plan["camino"][::3]:  # cada 3 puntos
+            x, y = celda_a_coordenada_centro(fila, col, delta_x, delta_y, alto)
+
+            dx_dir, dy_dir = {
+                0: (1, 0),    # Este
+                1: (0, 1),    # Norte
+                2: (-1, 0),   # Oeste
+                3: (0, -1),   # Sur
+            }[orient]
+
+            eje.arrow(
+                x, y,
+                dx_dir * 0.2,
+                dy_dir * 0.2,
+                head_width=0.05,
+                color="purple",
+                zorder=11
+            )
+
     eje.legend(
         loc="upper left",
         bbox_to_anchor=(1.02, 1),  # Cuadro labels fuera del gráfico
