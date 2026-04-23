@@ -284,8 +284,8 @@ def graficar_cspace_discretizado_multi(resultado, plan=None):
             zorder=10
         )
 
-        # 🔥 AQUÍ VAN LAS FLECHAS
-        for fila, col, orient in plan["camino"][::3]:  # cada 3 puntos
+        # Dibujar orientación del robot en el path hasta qf
+        for fila, col, orient in plan["camino"][::3]:  # cada 3 puntos la flecha
             x, y = celda_a_coordenada_centro(fila, col, delta_x, delta_y, alto)
 
             dx_dir, dy_dir = {
@@ -303,6 +303,8 @@ def graficar_cspace_discretizado_multi(resultado, plan=None):
                 color="purple",
                 zorder=11
             )
+
+
 
     eje.legend(
         loc="upper left",
