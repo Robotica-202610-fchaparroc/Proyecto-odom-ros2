@@ -27,8 +27,6 @@ class NavigationNode(Node):
         self.scan_recibido = False
         self.esperando_conexion_sim = False
         self.tiempo_inicio_espera_sim = None
-        self.mensaje_pendiente = None
-        self.input_activo = False
 
         # Suscriptores
         self.odom_sub = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
@@ -97,38 +95,11 @@ class NavigationNode(Node):
                 self.gz_process.wait(timeout=5)
             except Exception:
                 try:
-                    if os.name != 'nt':
-                        os.killpg(os.getpgid(self.gz_process.pid), signal.SIGKILL)
-                    else:
-                        self.gz_process.kill()
+                    self.gz_process.kill()
                 except Exception:
                     pass
 
         self.gz_process = None
-
-        # opcional: matar cualquier gz sim residual
-        if os.name != 'nt':
-            try:
-                subprocess.run(["pkill", "-f", "gz sim"], check=False)
-            except Exception:
-                pass
-
-    def detener_bridge(self):
-        if self.bridge_process and self.bridge_process.poll() is None:
-            self.get_logger().info("Deteniendo bridge...")
-            try:
-                if os.name == 'nt':
-                    self.bridge_process.terminate()
-                else:
-                    os.killpg(os.getpgid(self.bridge_process.pid), signal.SIGTERM)
-                self.bridge_process.wait(timeout=5)
-            except Exception:
-                try:
-                    self.bridge_process.kill()
-                except Exception:
-                    pass
-
-        self.bridge_process = None
 
     def detener_simulacion(self):
         """Detiene Gazebo y el bridge si estaban corriendo."""
@@ -167,86 +138,69 @@ class NavigationNode(Node):
             return
 
         self.detener_gazebo()
-        time.sleep(2)
 
         self.get_logger().info(f"Lanzando Gazebo con: {ruta_sdf}")
-        print(f"\nRuta SDF: {ruta_sdf}\n")
+
+        log_path = os.path.join(ruta_worlds, "gazebo_launch.log")
+        log_file = open(log_path, "w")
 
         try:
-            log_path = os.path.join(ruta_worlds, "gazebo_launch.log")
-            log_file = open(log_path, "w")
-            env = os.environ.copy()
-
-            # Agregar carpeta worlds al path de recursos de Gazebo
-            env["GZ_SIM_RESOURCE_PATH"] = ruta_worlds + ":" + env.get("GZ_SIM_RESOURCE_PATH", "")
-
             if os.name == 'nt':
+                print(f"\nRuta SDF: {ruta_sdf}\n")
                 self.gz_process = subprocess.Popen(
                     ["gz", "sim", "-r", ruta_sdf],
                     stdin=subprocess.DEVNULL,
-                    stdout=log_file,
-                    stderr=log_file
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
                 )
+                print("\nSe lanzó el proceso de Gazebo\n")
             else:
+                print(f"\nRuta SDF: {ruta_sdf}\n")
                 self.gz_process = subprocess.Popen(
                     ["gz", "sim", "-r", ruta_sdf],
-                    cwd=ruta_worlds,
-                    env=env,
                     stdin=subprocess.DEVNULL,
                     stdout=log_file,
                     stderr=log_file,
                     preexec_fn=os.setsid
                 )
+                print("\nSe lanzó el proceso de Gazebo\n")
 
-            print("\nSe lanzó el proceso de Gazebo\n")
             self.get_logger().info(f"Gazebo lanzado con escena {numero_escena} en autoplay.")
             print(f"\n✅ Gazebo lanzado con escena{numero_escena}.sdf\n")
-            print(f"Log de Gazebo: {log_path}\n")
 
         except Exception as e:
             self.get_logger().error(f"Error al lanzar Gazebo: {e}")
 
-    def lanzar_bridge(self):
-        _, _, ruta_worlds = self.obtener_rutas_base()
+    def lanzar_bridge(self, ruta_worlds):
+        """
+        Lanza el bridge usando bridge_gz.sh.
+        Se ejecuta dentro de la carpeta worlds para que encuentre config_bridge.yaml.
+        """
+        script_bridge = os.path.join(ruta_worlds, "bridge_gz.sh")
 
-        script_path = os.path.join(ruta_worlds, "bridge_gz.sh")
+        if not os.path.exists(script_bridge):
+            self.get_logger().error(f"No existe el script del bridge: {script_bridge}")
+            return False
 
-        if not os.path.exists(script_path):
-            self.get_logger().error(f"No se encontró bridge_gz.sh en: {script_path}")
-            return
+        self.get_logger().info(f"Lanzando bridge desde: {script_bridge}")
 
-        self.detener_bridge()
-
-        self.get_logger().info("Lanzando bridge ROS2 <-> Gazebo...")
-        
         try:
-            log_path = os.path.join(ruta_worlds, "bridge.log")
-            log_file = open(log_path, "w")
-
-            env = os.environ.copy()
-            env["GZ_SIM_RESOURCE_PATH"] = ruta_worlds + ":" + env.get("GZ_SIM_RESOURCE_PATH", "")
-
             if os.name == 'nt':
-                self.get_logger().error("bridge_gz.sh requiere bash (usar Linux o WSL)")
-                return
+                # En Windows esto requeriría otro enfoque si bridge_gz.sh está pensado para bash.
+                self.get_logger().error("El script .sh requiere bash; este flujo está pensado para Linux/WSL.")
+                return False
             else:
                 self.bridge_process = subprocess.Popen(
-                    ["bash", script_path],
+                    ["bash", script_bridge],
                     cwd=ruta_worlds,
-                    env=env,
-                    stdin=subprocess.DEVNULL,
-                    stdout=log_file,
-                    stderr=log_file,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     preexec_fn=os.setsid
                 )
-
-            self.get_logger().info("Bridge lanzado correctamente.")
-            print(f"\n✅ Bridge Ros2 Ejecutado correctamente\n")
-            print(f"Log del bridge: {log_path}\n")
-
+            return True
         except Exception as e:
-            self.get_logger().error(f"Error al lanzar el bridge: {e}")
-
+            self.get_logger().error(f"Error lanzando bridge: {e}")
+            return False
 
     def esperar_conexion_simulador(self, timeout=15.0):
         """
@@ -266,7 +220,7 @@ class NavigationNode(Node):
                 return False
 
             if self.odom_recibido and self.scan_recibido:
-                self.mensaje_pendiente = "✅ Robot conectado en simulador"
+                self.get_logger().info("Robot conectado en simulador.")
                 return True
 
         self.get_logger().warn("Timeout esperando odom y scan_raw desde el simulador.")
@@ -368,54 +322,70 @@ class NavigationNode(Node):
             
         return estado
 
-    def cargar_escena_txt(self, numero_escena):
-        _, ruta_data, _ = self.obtener_rutas_base()
-        ruta_txt = os.path.join(ruta_data, f'Escena-Problema{numero_escena}.txt')
+    # def cargar_escena(self, numero_escena):
+    #     """
+    #     Lee el archivo de la escena indicada y guarda el texto en self.texto_escena.
+    #     """
+    #     # Calculamos la ruta subiendo un nivel de directorio desde este archivo hasta la carpeta 'data'
+    #     directorio_actual = os.path.dirname(os.path.abspath(__file__))
+    #     ruta_archivo = os.path.join(directorio_actual, '..', 'data', f'Escena-Problema{numero_escena}.txt')
+        
+    #     try:
+    #         with open(ruta_archivo, 'r', encoding='utf-8') as archivo:
+    #             self.texto_escena = archivo.read()
+    #         self.get_logger().info(f"Escena {numero_escena} cargada correctamente.")
+    #         # Opcional: imprimir un pedacito para confirmar
+    #         print(f"\n--- Contenido Escena {numero_escena} ---\n{self.texto_escena}\n---------------------------")
+    #     except FileNotFoundError:
+    #         self.get_logger().error(f"No se encontró el archivo: {ruta_archivo}")
+    #     except Exception as e:
+    #         self.get_logger().error(f"Error al leer la escena: {e}")
 
-        if not os.path.exists(ruta_txt):
-            self.get_logger().error(f"No se encontró el archivo TXT: {ruta_txt}")
-            return False
-
-        try:
-            with open(ruta_txt, 'r', encoding='utf-8') as archivo:
-                self.texto_escena = archivo.read()
-
-            self.get_logger().info(f"✅ Escena de texto {numero_escena} cargada correctamente.")
-            print(f"\n--- Contenido Escena {numero_escena} ---")
-            print(self.texto_escena)
-            print("---------------------------\n")
-            return True
-
-        except Exception as e:
-            self.get_logger().error(f"Error al leer la escena TXT: {e}")
-            return False
-
-    def iniciar_escena_completa(self, numero_escena):
+    def cargar_escena(self, numero_escena):
         """
         1. Carga Escena-ProblemaN.txt
         2. Lanza worlds/escenaN.sdf en Gazebo con autoplay
         3. Lanza bridge_gz.sh
         4. Verifica conexión real del robot
         """
+        _, ruta_data, ruta_worlds = self.obtener_rutas_base()
 
-        # 1. Lanzar Gazebo con escena .sdf
-        self.lanzar_gazebo_escena(numero_escena)
+        ruta_txt = os.path.join(ruta_data, f'Escena-Problema{numero_escena}.txt')
+        ruta_sdf = os.path.join(ruta_worlds, f'escena{numero_escena}.sdf')
 
-        # Pequeña espera para que el mundo arranque
-        time.sleep(3)
+        # # 1. Leer TXT
+        # try:
+        #     with open(ruta_txt, 'r', encoding='utf-8') as archivo:
+        #         self.texto_escena = archivo.read()
+        #     self.get_logger().info(f"Escena de texto {numero_escena} cargada correctamente.")
+        #     print(f"\n--- Contenido Escena {numero_escena} ---\n{self.texto_escena}\n---------------------------")
+        # except FileNotFoundError:
+        #     self.get_logger().error(f"No se encontró el archivo TXT: {ruta_txt}")
+        #     return
+        # except Exception as e:
+        #     self.get_logger().error(f"Error al leer la escena TXT: {e}")
+        #     return
 
-        # 2. Lanzar bridge
-        self.lanzar_bridge()
+        # 2. Detener simulación anterior si existe
+        self.detener_simulacion()
 
-        time.sleep(3)
+        # # 3. Lanzar Gazebo
+        # if not self.lanzar_gazebo(ruta_sdf):
+        #     return
 
-        # 3. Cargar escena TXT
-        ok_txt = self.cargar_escena_txt(numero_escena)
-        if not ok_txt:
+        # # Espera inicial para que Gazebo arranque bien
+        # time.sleep(3)
+
+        # 4. Lanzar bridge
+        if not self.lanzar_bridge(ruta_worlds):
+            self.detener_simulacion()
             return
 
         # 5. Esperar sensores/odometría
-
+        if self.esperar_conexion_simulador(timeout=15.0):
+            print("\n✅ Robot conectado en simulador\n")
+        else:
+            print("\n⚠️ No se pudo confirmar conexión con el robot en simulador\n")
 
     # =======================================================
     # BUCLE PRINCIPAL (Área de trabajo del estudiante)
@@ -424,26 +394,19 @@ class NavigationNode(Node):
         """Pide input por consola sin interrumpir la recepción de datos de los sensores."""
         while rclpy.ok():
             if self.comando_activo is None:
-                if self.mensaje_pendiente:
-                    print(f"\n{self.mensaje_pendiente}\n")
-                    self.mensaje_pendiente = None
-
                 print("\n" + "="*35)
                 print("--- MENÚ DE NAVEGACIÓN ---")
                 print("1. Leer distancia en un ángulo")
                 print("2. Leer distancias en un rango")
                 print("3. Rotar grados relativos")
                 print("4. Mover relativo a la posición (X, Y)")
-                print("5. Cargar e iniciar simulador con escena")
+                print("5. Cargar Escena de texto e iniciar simulador")
                 print("6. Leer distancia por dirección (Frente, Atras, Izquierda, Derecha)")
                 print("7. Lanzar Gazebo con escena SDF")
-                print("8. Lanzar bridge ROS2 <-> Gazebo")
                 print("="*35)
                 
                 try:
-                    self.input_activo = True
-                    opcion = input("Elige una opción (1-8): ")
-                    self.input_activo = False
+                    opcion = input("Elige una opción (1-7): ")
                     
                     if opcion == '1':
                         angulo = float(input("Ingresa el ángulo (en grados): "))
@@ -469,7 +432,8 @@ class NavigationNode(Node):
 
                     elif opcion == '5':
                         numero = int(input("Ingresa el número de la escena (1-6): "))
-                        self.iniciar_escena_completa(numero)
+                        self.parametros_comando = [numero]
+                        self.comando_activo = 5
 
                     elif opcion == '6':
                         dir_input = input("¿Qué dirección? (frente, atras, izquierda, derecha): ").strip().lower()
@@ -482,10 +446,7 @@ class NavigationNode(Node):
                     elif opcion == '7':
                         numero = int(input("Ingresa el número de la escena SDF (1-6): "))
                         self.lanzar_gazebo_escena(numero)
-                    
-                    elif opcion == '8':
-                        self.lanzar_bridge()
-                    
+                        
                     else:
                         print("Opción no válida. Intenta de nuevo.")
                         
@@ -526,7 +487,7 @@ class NavigationNode(Node):
                 self.comando_activo = None
         
         elif self.comando_activo == 5:
-            self.cargar_escena_txt(self.parametros_comando[0])
+            self.cargar_escena(self.parametros_comando[0])
             self.comando_activo = None
 
         elif self.comando_activo == 6:

@@ -1,0 +1,163 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="pioneer3_world">
+    
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+    
+    <include>
+      <uri>mentorpi.sdf</uri>
+      <pose>0 0 0 0 0 0</pose>
+    </include>
+    
+    <model name="walls">
+      <static>true</static>
+      <link name="link">
+        <material>
+          <ambient>0.8 0.8 0.8 1</ambient>
+          <diffuse>0.8 0.8 0.8 1</diffuse>
+        </material>
+
+        <collision name="box1_col">
+          <pose>3.1 0 0.25 0 0 0</pose>
+          <geometry><box><size>0.2 6.4 0.5</size></box></geometry>
+        </collision>
+        <visual name="box1_vis">
+          <pose>3.1 0 0.25 0 0 0</pose>
+          <geometry><box><size>0.2 6.4 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box2_col">
+          <pose>-3.1 0 0.25 0 0 0</pose>
+          <geometry><box><size>0.2 6.4 0.5</size></box></geometry>
+        </collision>
+        <visual name="box2_vis">
+          <pose>-3.1 0 0.25 0 0 0</pose>
+          <geometry><box><size>0.2 6.4 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box3_col">
+          <pose>0 3.1 0.25 0 0 0</pose>
+          <geometry><box><size>6 0.2 0.5</size></box></geometry>
+        </collision>
+        <visual name="box3_vis">
+          <pose>0 3.1 0.25 0 0 0</pose>
+          <geometry><box><size>6 0.2 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box4_col">
+          <pose>0 -3.1 0.25 0 0 0</pose>
+          <geometry><box><size>6 0.2 0.5</size></box></geometry>
+        </collision>
+        <visual name="box4_vis">
+          <pose>0 -3.1 0.25 0 0 0</pose>
+          <geometry><box><size>6 0.2 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box5_col">
+          <pose>2 0 0.25 0 0 1.5708</pose>
+          <geometry><box><size>2 0.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="box5_vis">
+          <pose>2 0 0.25 0 0 1.5708</pose>
+          <geometry><box><size>2 0.1 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box6_col">
+          <pose>0.5 2 0.25 0 0 0.5236</pose>
+          <geometry><box><size>2 0.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="box6_vis">
+          <pose>0.5 2 0.25 0 0 0.5236</pose>
+          <geometry><box><size>2 0.1 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box7_col">
+          <pose>0.5 -1.5 0.25 0 0 -0.7854</pose>
+          <geometry><box><size>1.5 0.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="box7_vis">
+          <pose>0.5 -1.5 0.25 0 0 -0.7854</pose>
+          <geometry><box><size>1.5 0.1 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box8_col">
+          <pose>-2 2.5 0.25 0 0 1.5708</pose>
+          <geometry><box><size>1 0.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="box8_vis">
+          <pose>-2 2.5 0.25 0 0 1.5708</pose>
+          <geometry><box><size>1 0.1 0.5 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box9_col">
+          <pose>-2.5 1 0.25 0 0 0</pose>
+          <geometry><box><size>1 0.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="box9_vis">
+          <pose>-2.5 1 0.25 0 0 0</pose>
+          <geometry><box><size>1 0.1 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="box10_col">
+          <pose>-2 -1 0.25 0 0 0.7854</pose>
+          <geometry><box><size>2 0.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="box10_vis">
+          <pose>-2 -1 0.25 0 0 0.7854</pose>
+          <geometry><box><size>2 0.1 0.5</size></box></geometry>
+        </visual>
+
+      </link>
+    </model>
+
+  </world>
+</sdf>
