@@ -110,17 +110,8 @@ def vecinos_estado(estado, matriz, estados_transitables=("L",)):
     fila, col, orient = estado
     vecinos = []
 
-    vecinos.append((
-        (fila, col, (orient + 1) % 4),
-        "GIRAR_IZQUIERDA",
-        1
-    ))
-
-    vecinos.append((
-        (fila, col, (orient - 1) % 4),
-        "GIRAR_DERECHA",
-        1
-    ))
+    vecinos.append(((fila, col, (orient + 1) % 4), "GIRAR_IZQUIERDA", 2))
+    vecinos.append(((fila, col, (orient - 1) % 4), "GIRAR_DERECHA", 2))
 
     df, dc = DELTA_AVANCE[orient]
     nueva_fila = fila + df
