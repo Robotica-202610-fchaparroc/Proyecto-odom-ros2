@@ -37,6 +37,7 @@ class NavigationNode(Node):
         self.esperando_conexion = False
         self.tiempo_inicio_espera = None
         self.mensaje_pendiente = None
+        self.odom_lista = False
 
         # Estado Escena y Malla
         self.cspace_resultado = None
@@ -44,6 +45,18 @@ class NavigationNode(Node):
 
         # Estado planificación A*
         self.plan_resultado = None
+        self.pose_inicial_relativa = None
+        self.target_theta_relativo = None
+        self.distancia_objetivo_relativa = None
+        self.sentido_movimiento_relativo = None
+        self.movimiento_inicio_tiempo = None
+        self.odom_valida = False
+        self.ultima_pose_valida = None
+
+        # Estado ejecución del plan A*
+        self.plan_en_ejecucion = False
+        self.acciones_plan_pendientes = []
+        self.accion_plan_actual = None
 
         # Estado robot
         self.current_x = 0.0
@@ -64,7 +77,8 @@ class NavigationNode(Node):
         self.parametros_comando = []
 
         # ROS interfaces
-        self.odom_sub = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
+        # self.odom_sub = self.create_subscription(Odometry, 'odom', self.odom_callback, 10)
+        self.odom_sub = self.create_subscription(Odometry, 'odom_cov', self.odom_callback, 10)
         self.lidar_sub = self.create_subscription(LaserScan, 'scan_raw', self.lidar_callback, 10)
         self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', 10)
 
@@ -81,9 +95,12 @@ class NavigationNode(Node):
     # =======================================================
     def odom_callback(self, msg):
         self.odom_recibido = True
+
+        # Posición
         self.current_x = msg.pose.pose.position.x
         self.current_y = msg.pose.pose.position.y
 
+        # Orientación (yaw)
         qz = msg.pose.pose.orientation.z
         qw = msg.pose.pose.orientation.w
         self.current_theta = 2.0 * math.atan2(qz, qw)
@@ -391,6 +408,107 @@ class NavigationNode(Node):
         )
         print("--------------------------\n")
 
+    def compactar_acciones_plan(self, acciones):
+        acciones_compactadas = []
+        contador_avances = 0
+
+        for accion in acciones:
+            if accion == "AVANZAR":
+                contador_avances += 1
+            else:
+                if contador_avances > 0:
+                    acciones_compactadas.append(("AVANZAR", contador_avances))
+                    contador_avances = 0
+
+                acciones_compactadas.append((accion, 1))
+
+        if contador_avances > 0:
+            acciones_compactadas.append(("AVANZAR", contador_avances))
+
+        return acciones_compactadas
+
+    def ejecutar_plan_astar(self):
+        if self.plan_resultado is None:
+            print("⚠️ Primero planifica una ruta con A*.")
+            return
+
+        if self.cspace_resultado is None:
+            print("⚠️ Primero genera el C-space.")
+            return
+
+        acciones = self.plan_resultado.get("acciones", [])
+        if not acciones:
+            print("⚠️ El plan no tiene acciones para ejecutar.")
+            return
+
+        # Importante: para mover una celda, asumimos delta_x == delta_y
+        dx = self.cspace_resultado["delta_x"]
+        dy = self.cspace_resultado["delta_y"]
+
+        if abs(dx - dy) > 1e-9:
+            print("⚠️ Para esta ejecución simple se requiere delta_x == delta_y.")
+            return
+
+        self.acciones_plan_pendientes = self.compactar_acciones_plan(acciones)
+        self.accion_plan_actual = None
+        self.plan_en_ejecucion = True
+
+        print(f"\n▶ Ejecutando plan A* con {len(acciones)} acciones...\n")
+
+    def ejecutar_siguiente_accion_plan(self):
+        if not self.plan_en_ejecucion:
+            return
+
+        if self.accion_plan_actual is None:
+            if not self.acciones_plan_pendientes:
+                self.plan_en_ejecucion = False
+                self.cmd_pub.publish(Twist())
+                print("\n✅ Plan ejecutado completamente.\n")
+                return
+
+            self.accion_plan_actual = self.acciones_plan_pendientes.pop(0)
+            accion, repeticiones = self.accion_plan_actual
+            self.get_logger().info(f"Ejecutando acción: {accion} x{repeticiones}")
+
+        accion, repeticiones = self.accion_plan_actual
+        dx = self.cspace_resultado["delta_x"]
+
+        if accion == "GIRAR_IZQUIERDA":
+            completado = self.rotar_relativo(90.0)
+            if completado:
+                self.accion_plan_actual = None
+
+        elif accion == "GIRAR_DERECHA":
+            completado = self.rotar_relativo(-90.0)
+            if completado:
+                self.accion_plan_actual = None
+
+        elif accion == "AVANZAR":
+            distancia_total = dx * repeticiones
+
+            estado = self.mover_relativo(
+                distancia_total,
+                0.0,
+                vel_lineal=0.25
+            )
+
+            if estado == "COMPLETADO":
+                self.accion_plan_actual = None
+
+            elif estado == "BLOQUEADO":
+                self.plan_en_ejecucion = False
+                self.accion_plan_actual = None
+                self.acciones_plan_pendientes = []
+                self.cmd_pub.publish(Twist())
+                print("\n⚠️ Plan abortado: obstáculo detectado.\n")
+
+    def detener_plan(self):
+        self.plan_en_ejecucion = False
+        self.acciones_plan_pendientes = []
+        self.accion_plan_actual = None
+        self.cmd_pub.publish(Twist())
+        print("\n⏹ Plan detenido.\n")
+
 
     # =======================================================
     # WRAPPERS PARA LOS ESTUDIANTES
@@ -418,55 +536,115 @@ class NavigationNode(Node):
 
     def rotar_relativo(self, grados_relativos, tolerancia=0.05):
         if self.target_theta_relativo is None:
-            self.target_theta_relativo = self.current_theta + math.radians(grados_relativos)
+            factor_correccion = 1.05
+
+            self.target_theta_relativo = self.current_theta + math.radians(grados_relativos * factor_correccion)
 
         cmd, completado = calcular_rotacion(
             self.current_theta,
             self.target_theta_relativo,
             tolerancia=tolerancia
         )
+
         self.cmd_pub.publish(cmd)
 
         if completado:
+            self.cmd_pub.publish(Twist())
             self.target_theta_relativo = None
 
         return completado
 
-    def mover_relativo(self, distancia_x_metros, distancia_y_metros, cono_vision=30, dist_segura=0.3, vel_lineal=0.4):
-        if self.pose_inicial_relativa is None:
-            self.pose_inicial_relativa = True
-            self.tiempo_maniobra = 0.0
+    def mover_relativo(
+        self,
+        distancia_x_metros,
+        distancia_y_metros,
+        cono_vision=30,
+        dist_segura=0.3,
+        vel_lineal=0.3
+    ):
+        dist_total = math.sqrt(distancia_x_metros**2 + distancia_y_metros**2)
 
-        if abs(distancia_x_metros) >= abs(distancia_y_metros):
-            if distancia_x_metros >= 0:
-                cono_despejado = self.leer_distancias_en_rango(-cono_vision, cono_vision)
+        if dist_total < 0.001:
+            self.cmd_pub.publish(Twist())
+            return "COMPLETADO"
+
+        # Inicializar movimiento
+        if self.pose_inicial_relativa is None:
+            self.pose_inicial_relativa = (self.current_x, self.current_y)
+            self.distancia_objetivo_relativa = dist_total
+
+            self.sentido_movimiento_relativo = (
+                distancia_x_metros / dist_total,
+                distancia_y_metros / dist_total
+            )
+
+            self.get_logger().info(
+                f"[MOVER] Pose inicial fijada en "
+                f"({self.current_x:.3f}, {self.current_y:.3f})"
+            )
+
+        x0, y0 = self.pose_inicial_relativa
+
+        distancia_recorrida = math.hypot(
+            self.current_x - x0,
+            self.current_y - y0
+        )
+
+        self.get_logger().info(
+            f"[MOVER] objetivo={self.distancia_objetivo_relativa:.3f}, "
+            f"recorrida={distancia_recorrida:.3f}"
+        )
+
+        tolerancia_distancia = min(0.03, max(0.005, dist_total * 0.1))
+
+        # ✔ Condición de llegada
+        if distancia_recorrida >= self.distancia_objetivo_relativa - tolerancia_distancia:
+            self.cmd_pub.publish(Twist())
+
+            self.pose_inicial_relativa = None
+            self.distancia_objetivo_relativa = None
+            self.sentido_movimiento_relativo = None
+
+            return "COMPLETADO"
+
+        # ==========================
+        # ANTICHOQUES DIRECCIONAL
+        # ==========================
+        sx, sy = self.sentido_movimiento_relativo
+
+        if abs(sx) >= abs(sy):
+            if sx >= 0:
+                cono = self.leer_distancias_en_rango(-cono_vision, cono_vision)
             else:
-                cono_despejado = (
+                cono = (
                     self.leer_distancias_en_rango(180 - cono_vision, 180)
                     + self.leer_distancias_en_rango(-180, -180 + cono_vision)
                 )
         else:
-            if distancia_y_metros > 0:
-                cono_despejado = self.leer_distancias_en_rango(90 - cono_vision, 90 + cono_vision)
+            if sy > 0:
+                cono = self.leer_distancias_en_rango(90 - cono_vision, 90 + cono_vision)
             else:
-                cono_despejado = self.leer_distancias_en_rango(270 - cono_vision, 270 + cono_vision)
+                cono = self.leer_distancias_en_rango(270 - cono_vision, 270 + cono_vision)
 
-        cmd, estado = calcular_movimiento_relativo(
-            self.tiempo_maniobra,
-            distancia_x_metros,
-            distancia_y_metros,
-            cono_despejado,
-            dist_segura=dist_segura,
-            vel_lineal=vel_lineal
-        )
-        self.cmd_pub.publish(cmd)
-        self.tiempo_maniobra += 0.1
+        min_dist = min(cono) if cono else float("inf")
 
-        if estado in ['COMPLETADO', 'BLOQUEADO']:
+        if min_dist <= dist_segura:
+            self.cmd_pub.publish(Twist())
+
             self.pose_inicial_relativa = None
-            self.tiempo_maniobra = 0.0
+            self.distancia_objetivo_relativa = None
+            self.sentido_movimiento_relativo = None
 
-        return estado
+            return "BLOQUEADO"
+
+        # ✔ Movimiento
+        cmd = Twist()
+        cmd.linear.x = sx * vel_lineal
+        cmd.linear.y = sy * vel_lineal
+        self.cmd_pub.publish(cmd)
+
+        return "EN_RUTA"
+
 
     # =======================================================
     # ESCENAS Y SIMULADOR
@@ -551,10 +729,12 @@ class NavigationNode(Node):
             print("9. Generar C-space desde escena TXT")
             print("10. Planificar ruta con A*")
             print("11. Graficar malla C-space")
+            print("12. Ejecutar plan A* en el robot")
+            print("13. Detener plan A* en el robot")
             print("=" * 35)
 
             try:
-                opcion = input("Elige una opción (1-11): ")
+                opcion = input("Elige una opción (1-12): ")
 
                 if opcion == '1':
                     angulo = float(input("Ingresa el ángulo (en grados): "))
@@ -575,6 +755,13 @@ class NavigationNode(Node):
                 elif opcion == '4':
                     x = float(input("Cuánto avanzar en X (Frente/Atrás) [en metros]: "))
                     y = float(input("Cuánto avanzar en Y (Izquierda/Derecha) [en metros]: "))
+
+                    self.pose_inicial_relativa = None
+                    self.distancia_objetivo_relativa = None
+                    self.sentido_movimiento_relativo = None
+
+                    time.sleep(0.2)
+
                     self.parametros_comando = [x, y]
                     self.comando_activo = 4
 
@@ -606,6 +793,12 @@ class NavigationNode(Node):
                 elif opcion == '11':
                     self.graficar_cspace_escena_actual()
 
+                elif opcion == '12':
+                    self.ejecutar_plan_astar()
+
+                elif opcion == '13':
+                    self.detener_plan()
+
                 else:
                     print("Opción no válida. Intenta de nuevo.")
 
@@ -626,14 +819,24 @@ class NavigationNode(Node):
                 self.esperando_conexion = False
 
             elif self.odom_recibido and self.scan_recibido:
-                self.mensaje_pendiente = "✅ Robot conectado en simulador"
+                self.mensaje_pendiente = (
+                    f"✅ Robot conectado en simulador"
+                    f"(odom={self.odom_recibido}, scan={self.scan_recibido})"
+                )
                 self.esperando_conexion = False
 
             elif time.time() - self.tiempo_inicio_espera > 15.0:
-                self.mensaje_pendiente = "⚠️ No se pudo confirmar conexión con el robot"
+                self.mensaje_pendiente = (
+                    f"⚠️ No se pudo confirmar conexión con el robot "
+                    f"(odom={self.odom_recibido}, scan={self.scan_recibido})"
+                )
                 self.esperando_conexion = False
 
         if self.last_scan is None:
+            return
+
+        if self.plan_en_ejecucion:
+            self.ejecutar_siguiente_accion_plan()
             return
 
         if self.comando_activo == 1:
@@ -653,6 +856,7 @@ class NavigationNode(Node):
 
         elif self.comando_activo == 4:
             estado = self.mover_relativo(self.parametros_comando[0], self.parametros_comando[1])
+            self.get_logger().info(f"[OPCION 4] estado movimiento = {estado}")
 
             if estado == 'COMPLETADO':
                 self.get_logger().info("Desplazamiento relativo completado.")

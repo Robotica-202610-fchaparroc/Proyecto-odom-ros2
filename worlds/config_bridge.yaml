@@ -35,10 +35,10 @@
   direction: GZ_TO_ROS
 
 # Odometry
-- gz_topic_name: /odom/unfiltered
-  ros_topic_name: /odom
-  ros_type_name: nav_msgs/msg/Odometry
-  gz_type_name: gz.msgs.Odometry
+- ros_topic_name: "/odom_cov"
+  gz_topic_name: "/model/mentorpi/odometry_with_covariance"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.OdometryWithCovariance"
   direction: GZ_TO_ROS
 
 # Joint States
