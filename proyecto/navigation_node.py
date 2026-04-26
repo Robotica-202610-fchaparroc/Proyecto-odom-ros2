@@ -41,7 +41,7 @@ class NavigationNode(Node):
 
         # Estado Escena y Malla
         self.cspace_resultado = None
-        self.lado_robot=0.5
+        self.lado_robot=0.3
 
         # Estado planificación A*
         self.plan_resultado = None
@@ -260,18 +260,7 @@ class NavigationNode(Node):
         if not self.texto_escena.strip():
             print("⚠️ Primero carga una escena TXT.")
             return
-
-        try:
-            entrada=input("Ingresa el lado del robot en metros (Enter para usar 0.5 por default): ").strip()
-
-            if entrada == "":
-                self.lado_robot=0.5
-            else:
-                self.lado_robot=float(entrada)
-        except ValueError:
-            print("Valor invalido, se usara por defecto 0.5")
-            self.lado_robot=0.5
-
+        
         resultado = generar_cspace_desde_texto_escena(
             self.texto_escena,
             lado_robot=self.lado_robot,

@@ -111,6 +111,13 @@ def graficar_cspace_discretizado_multi(resultado, plan=None):
     close_plot_grid()
     figura, eje = plt.subplots(figsize=(8, 7))
 
+    # Mover ventana a la derecha
+    manager = plt.get_current_fig_manager()
+    try:
+        manager.window.wm_geometry("+1000+50")  # (x, y)
+    except:
+        pass
+
     eje.set_title("C-space discretizado")
     eje.set_xlabel("X (m)")
     eje.set_ylabel("Y (m)")
