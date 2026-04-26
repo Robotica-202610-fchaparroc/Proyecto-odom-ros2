@@ -39,6 +39,7 @@ class NavigationNode(Node):
         self.mensaje_pendiente = None
 
         # Estado Escena y Malla
+        self.escena_seleccionada = None
         self.cspace_resultado = None
         self.lado_robot=0.3
 
@@ -451,7 +452,7 @@ class NavigationNode(Node):
                 self.plan_en_ejecucion = False
                 self.cmd_pub.publish(Twist())
 
-                print("\n✅ Plan ejecutado completamente.\n")
+                print(f"\n✅ Plan ejecutado completamente para escena No {self.escena_seleccionada}.\n")
 
                 # Mostrar resultados en qf
                 self.informar_estado_final_qf()
@@ -570,7 +571,7 @@ class NavigationNode(Node):
 
         tolerancia_distancia = min(0.03, max(0.005, dist_total * 0.1))
 
-        # ✔ Condición de llegada
+        # Condición de llegada
         if distancia_recorrida >= self.distancia_objetivo_relativa - tolerancia_distancia:
             self.cmd_pub.publish(Twist())
 
@@ -610,7 +611,7 @@ class NavigationNode(Node):
 
             return "BLOQUEADO"
 
-        # ✔ Movimiento
+        # Movimiento
         cmd = Twist()
         cmd.linear.x = sx * vel_lineal
         cmd.linear.y = sy * vel_lineal
@@ -653,7 +654,6 @@ class NavigationNode(Node):
         qact_theta = qftheta
 
         print("\n=========== RESULTADOS EN qf ===========")
-
         print("\n(a) Configuración teórica:")
         print(f"qf = ({qfx:.3f}, {qfy:.3f}, {qftheta:.1f}°)")
 
@@ -735,6 +735,23 @@ class NavigationNode(Node):
     # =======================================================
     # MENÚ
     # =======================================================
+    def obtener_escenas_disponibles(self):
+        ruta_data, _ = self.obtener_rutas_base()
+
+        archivos = os.listdir(ruta_data)
+
+        escenas = []
+        for archivo in archivos:
+            if archivo.startswith("Escena-Problema") and archivo.endswith(".txt"):
+                try:
+                    numero = int(archivo.replace("Escena-Problema", "").replace(".txt", ""))
+                    escenas.append(numero)
+                except ValueError:
+                    pass
+
+        escenas.sort()
+        return escenas
+
     def mostrar_menu(self):
         print("\n" + "=" * 35)
         print("--- MENÚ DE NAVEGACIÓN ---")
@@ -761,8 +778,27 @@ class NavigationNode(Node):
                 opcion = input()
 
                 if opcion == '1':
-                    numero = int(input("Ingresa el número de la escena (1-6): "))
-                    self.iniciar_escena_completa(numero)
+                    escenas = self.obtener_escenas_disponibles()
+
+                    if not escenas:
+                        print("⚠️ No hay escenas disponibles.")
+                        return
+
+                    print("\nEscenas disponibles:", escenas)
+
+                    try:
+                        numero = int(input("Selecciona el número de la escena: "))
+
+                        if numero not in escenas:
+                            print("⚠️ Escena no válida.")
+                            return
+
+                        self.escena_seleccionada=numero
+                        self.iniciar_escena_completa(numero)
+
+                    except ValueError:
+                        self.escena_seleccionada=None
+                        print("⚠️ Ingresa un número válido.")
 
                 elif opcion == '2':
                     self.probar_cspace_escena_actual()
