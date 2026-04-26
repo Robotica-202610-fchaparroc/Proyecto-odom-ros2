@@ -13,7 +13,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 
 from .logic.lidar import obtener_distancia_angulo, obtener_distancias_rango
-from .logic.movement import calcular_movimiento_relativo, calcular_rotacion
+from .logic.movement import calcular_rotacion
 from .logic.cspace_from_txt import generar_cspace_desde_texto_escena
 from .logic.cspace_plot import mostrar_cspace, close_plot_grid
 from .logic.astar_grid import (
@@ -37,7 +37,6 @@ class NavigationNode(Node):
         self.esperando_conexion = False
         self.tiempo_inicio_espera = None
         self.mensaje_pendiente = None
-        self.odom_lista = False
 
         # Estado Escena y Malla
         self.cspace_resultado = None
@@ -45,15 +44,6 @@ class NavigationNode(Node):
 
         # Estado planificación A*
         self.plan_resultado = None
-        self.pose_inicial_relativa = None
-        self.target_theta_relativo = None
-        self.distancia_objetivo_relativa = None
-        self.sentido_movimiento_relativo = None
-        self.movimiento_inicio_tiempo = None
-        self.odom_valida = False
-        self.ultima_pose_valida = None
-
-        # Estado ejecución del plan A*
         self.plan_en_ejecucion = False
         self.acciones_plan_pendientes = []
         self.accion_plan_actual = None
@@ -68,6 +58,8 @@ class NavigationNode(Node):
         self.target_theta_relativo = None
         self.pose_inicial_relativa = None
         self.tiempo_maniobra = 0.0
+        self.distancia_objetivo_relativa = None
+        self.sentido_movimiento_relativo = None
 
         # Escena cargada
         self.texto_escena = ""
@@ -90,8 +82,9 @@ class NavigationNode(Node):
         self.hilo_menu = threading.Thread(target=self.menu_interactivo, daemon=True)
         self.hilo_menu.start()
 
+
     # =======================================================
-    # CALLBACKS ROS2
+    # CALLBACKS ROS2 Subscriptores
     # =======================================================
     def odom_callback(self, msg):
         self.odom_recibido = True
@@ -108,6 +101,7 @@ class NavigationNode(Node):
     def lidar_callback(self, msg):
         self.scan_recibido = True
         self.last_scan = msg
+
 
     # =======================================================
     # RUTAS Y PROCESOS
@@ -232,7 +226,9 @@ class NavigationNode(Node):
             self.get_logger().error(f"Error al lanzar el bridge: {e}")
             return False
 
+    # =======================================================
     ## CREAR MALLA EN ESCENA
+    # =======================================================
     def buscar_celda_punto_cspace(self, x, y, matriz, dx, dy, ancho, alto):
         columnas = int(round(ancho / dx))
         filas = int(round(alto / dy))
@@ -329,7 +325,9 @@ class NavigationNode(Node):
         plan = self.plan_resultado if hasattr(self, "plan_resultado") else None
         mostrar_cspace(self.cspace_resultado, plan=plan)
 
+    # =======================================================
     ## Metodo planificación A*
+    # =======================================================
     def planificar_ruta_astar(self):
         if self.cspace_resultado is None:
             print("⚠️ Primero genera el C-space.")
@@ -452,7 +450,12 @@ class NavigationNode(Node):
             if not self.acciones_plan_pendientes:
                 self.plan_en_ejecucion = False
                 self.cmd_pub.publish(Twist())
+
                 print("\n✅ Plan ejecutado completamente.\n")
+
+                # volver a mostrar menú
+                self.mostrar_menu()
+
                 return
 
             self.accion_plan_actual = self.acciones_plan_pendientes.pop(0)
@@ -491,36 +494,16 @@ class NavigationNode(Node):
                 self.cmd_pub.publish(Twist())
                 print("\n⚠️ Plan abortado: obstáculo detectado.\n")
 
-    def detener_plan(self):
-        self.plan_en_ejecucion = False
-        self.acciones_plan_pendientes = []
-        self.accion_plan_actual = None
-        self.cmd_pub.publish(Twist())
-        print("\n⏹ Plan detenido.\n")
-
 
     # =======================================================
-    # WRAPPERS PARA LOS ESTUDIANTES
+    # Comandos para movimiento de Robot
     # =======================================================
     def leer_distancia_en_angulo(self, grados):
+        """Retorna la distancia (en metros) de un ángulo específico del Lidar."""
         return obtener_distancia_angulo(self.last_scan, math.radians(grados))
 
-    def leer_distancia_direccion(self, direccion):
-        mapa_direcciones = {
-            'frente': 0.0,
-            'izquierda': 90.0,
-            'derecha': 270.0,
-            'atras': 180.0
-        }
-
-        direccion = direccion.lower()
-        if direccion not in mapa_direcciones:
-            self.get_logger().error(f"Dirección '{direccion}' no válida.")
-            return float('inf')
-
-        return self.leer_distancia_en_angulo(mapa_direcciones[direccion])
-
     def leer_distancias_en_rango(self, grados_min, grados_max):
+        """Retorna una lista con todas las detecciones en un rango visual."""
         return obtener_distancias_rango(self.last_scan, grados_min, grados_max)
 
     def rotar_relativo(self, grados_relativos, tolerancia=0.05):
@@ -636,7 +619,7 @@ class NavigationNode(Node):
 
 
     # =======================================================
-    # ESCENAS Y SIMULADOR
+    # Cargar escena sdf y txt
     # =======================================================
     def cargar_escena_txt(self, numero_escena):
         ruta_data, _ = self.obtener_rutas_base()
@@ -692,9 +675,20 @@ class NavigationNode(Node):
             print(f"{self.mensaje_pendiente}\n")
             self.mensaje_pendiente = None
 
+
     # =======================================================
     # MENÚ
     # =======================================================
+    def mostrar_menu(self):
+        print("\n" + "=" * 35)
+        print("--- MENÚ DE NAVEGACIÓN ---")
+        print("1. Cargar e iniciar simulador con escena")
+        print("2. Generar C-space desde escena TXT, Planificar ruta con A* y Graficar malla C-space")
+        print("3. Ejecutar plan A* en el robot")
+        print("4. Salir")
+        print("=" * 35)
+        print("Elige una opción (1-4): ", end="", flush=True)
+
     def menu_interactivo(self):
         while rclpy.ok():
             if self.comando_activo is not None:
@@ -705,94 +699,46 @@ class NavigationNode(Node):
                 print(f"\n{self.mensaje_pendiente}\n")
                 self.mensaje_pendiente = None
 
-            print("\n" + "=" * 35)
-            print("--- MENÚ DE NAVEGACIÓN ---")
-            print("1. Leer distancia en un ángulo")
-            print("2. Leer distancias en un rango")
-            print("3. Rotar grados relativos")
-            print("4. Mover relativo a la posición (X, Y)")
-            print("5. Cargar e iniciar simulador con escena")
-            print("6. Leer distancia por dirección (Frente, Atras, Izquierda, Derecha)")
-            print("7. Lanzar Gazebo con escena SDF")
-            print("8. Lanzar bridge ROS2 <-> Gazebo")
-            print("9. Generar C-space desde escena TXT")
-            print("10. Planificar ruta con A*")
-            print("11. Graficar malla C-space")
-            print("12. Ejecutar plan A* en el robot")
-            print("13. Detener plan A* en el robot")
-            print("=" * 35)
+            self.mostrar_menu()
 
             try:
-                opcion = input("Elige una opción (1-12): ")
+                opcion = input()
 
                 if opcion == '1':
-                    angulo = float(input("Ingresa el ángulo (en grados): "))
-                    self.parametros_comando = [angulo]
-                    self.comando_activo = 1
-
-                elif opcion == '2':
-                    ang_min = float(input("Ángulo mínimo (ej. -30): "))
-                    ang_max = float(input("Ángulo máximo (ej. 30): "))
-                    self.parametros_comando = [ang_min, ang_max]
-                    self.comando_activo = 2
-
-                elif opcion == '3':
-                    grados = float(input("¿Cuántos grados quieres rotar? (Positivo=Izq, Negativo=Der): "))
-                    self.parametros_comando = [grados]
-                    self.comando_activo = 3
-
-                elif opcion == '4':
-                    x = float(input("Cuánto avanzar en X (Frente/Atrás) [en metros]: "))
-                    y = float(input("Cuánto avanzar en Y (Izquierda/Derecha) [en metros]: "))
-
-                    self.pose_inicial_relativa = None
-                    self.distancia_objetivo_relativa = None
-                    self.sentido_movimiento_relativo = None
-
-                    time.sleep(0.2)
-
-                    self.parametros_comando = [x, y]
-                    self.comando_activo = 4
-
-                elif opcion == '5':
                     numero = int(input("Ingresa el número de la escena (1-6): "))
                     self.iniciar_escena_completa(numero)
 
-                elif opcion == '6':
-                    direccion = input("¿Qué dirección? (frente, atras, izquierda, derecha): ").strip().lower()
-                    if direccion in ['frente', 'atras', 'izquierda', 'derecha']:
-                        self.parametros_comando = [direccion]
-                        self.comando_activo = 6
-                    else:
-                        print("Dirección no válida. Intenta de nuevo.")
-
-                elif opcion == '7':
-                    numero = int(input("Ingresa el número de la escena SDF (1-6): "))
-                    self.lanzar_gazebo_escena(numero)
-
-                elif opcion == '8':
-                    self.lanzar_bridge()
-
-                elif opcion == '9':
+                elif opcion == '2':
                     self.probar_cspace_escena_actual()
-
-                elif opcion == '10':
                     self.planificar_ruta_astar()
-
-                elif opcion == '11':
                     self.graficar_cspace_escena_actual()
 
-                elif opcion == '12':
+                elif opcion == '3':
                     self.ejecutar_plan_astar()
 
-                elif opcion == '13':
-                    self.detener_plan()
+                elif opcion == "4":
+                    confirm = input("¿Seguro que quieres salir? (s/n): ").strip().lower()
+
+                    if confirm == "s":
+                        print("Saliendo del programa...")
+
+                        self.cmd_pub.publish(Twist())
+                        self.plan_en_ejecucion = False
+                        self.accion_plan_actual = None
+                        self.acciones_plan_pendientes = []
+
+                        rclpy.shutdown()
+                        return
+
+                    else:
+                        print("Cancelado. Volviendo al menú.\n")
 
                 else:
                     print("Opción no válida. Intenta de nuevo.")
 
             except ValueError:
                 print("Por favor, ingresa únicamente números válidos.")
+
 
     # =======================================================
     # CONTROL LOOP
@@ -827,38 +773,6 @@ class NavigationNode(Node):
         if self.plan_en_ejecucion:
             self.ejecutar_siguiente_accion_plan()
             return
-
-        if self.comando_activo == 1:
-            dist = self.leer_distancia_en_angulo(self.parametros_comando[0])
-            self.get_logger().info(f"Distancia a {self.parametros_comando[0]}°: {dist:.2f} m")
-            self.comando_activo = None
-
-        elif self.comando_activo == 2:
-            distancias = self.leer_distancias_en_rango(self.parametros_comando[0], self.parametros_comando[1])
-            self.get_logger().info(f"Distancias detectadas: {distancias}")
-            self.comando_activo = None
-
-        elif self.comando_activo == 3:
-            if self.rotar_relativo(self.parametros_comando[0]):
-                self.get_logger().info("Rotación completada exitosamente.")
-                self.comando_activo = None
-
-        elif self.comando_activo == 4:
-            estado = self.mover_relativo(self.parametros_comando[0], self.parametros_comando[1])
-            self.get_logger().info(f"[OPCION 4] estado movimiento = {estado}")
-
-            if estado == 'COMPLETADO':
-                self.get_logger().info("Desplazamiento relativo completado.")
-                self.comando_activo = None
-            elif estado == 'BLOQUEADO':
-                self.get_logger().warn("¡Obstáculo detectado! Ruta bloqueada. Abortando movimiento.")
-                self.comando_activo = None
-
-        elif self.comando_activo == 6:
-            direccion = self.parametros_comando[0]
-            dist = self.leer_distancia_direccion(direccion)
-            self.get_logger().info(f"Distancia hacia el {direccion.upper()}: {dist:.2f} m")
-            self.comando_activo = None
 
 
 def main(args=None):
