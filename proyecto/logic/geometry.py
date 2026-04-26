@@ -9,11 +9,6 @@ def rotar_puntos(puntos, angulo):
     ])
     return (matriz @ puntos.T).T
 
-def trasladar_puntos(puntos, tx, ty):
-    return puntos + np.array([tx, ty])
-
-def cerrar_poligono(poligono):
-    return np.vstack([poligono, poligono[0]])
 
 def es_antihorario(poligono):
     suma = 0.0
