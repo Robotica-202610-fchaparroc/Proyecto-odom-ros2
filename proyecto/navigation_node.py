@@ -453,9 +453,10 @@ class NavigationNode(Node):
 
                 print("\n✅ Plan ejecutado completamente.\n")
 
-                # volver a mostrar menú
-                self.mostrar_menu()
+                # Mostrar resultados en qf
+                self.informar_estado_final_qf()
 
+                self.mostrar_menu()
                 return
 
             self.accion_plan_actual = self.acciones_plan_pendientes.pop(0)
@@ -616,6 +617,61 @@ class NavigationNode(Node):
         self.cmd_pub.publish(cmd)
 
         return "EN_RUTA"
+
+
+    # =======================================================
+    ## Reporte
+    # =======================================================
+    def informar_estado_final_qf(self):
+        if self.cspace_resultado is None or self.last_scan is None:
+            print("⚠️ No hay datos suficientes para informar qf.")
+            return
+
+        resultado = self.cspace_resultado
+        ancho = resultado["ancho"]
+        alto = resultado["alto"]
+        dFrente_teorico=resultado["dFrente"]
+        dDerecha_teorico=resultado["dDerecha"]
+
+        # --- qf teórica ---
+        qfx, qfy, qftheta = resultado["qf"]
+
+        # --- qf estimada (odometría) ---
+        qf_est_x = self.current_x
+        qf_est_y = self.current_y
+        qf_est_theta = math.degrees(self.current_theta)
+
+        # --- mediciones LiDAR ---
+        d_frente = self.leer_distancia_en_angulo(0.0)
+        d_derecha = self.leer_distancia_en_angulo(270.0)
+        d_atras = self.leer_distancia_en_angulo(180.0)
+        d_izquierda = self.leer_distancia_en_angulo(90.0)
+
+        # --- qact (real) ---
+        qact_x = ancho - d_derecha
+        qact_y = alto - d_frente
+        qact_theta = qftheta
+
+        print("\n=========== RESULTADOS EN qf ===========")
+
+        print("\n(a) Configuración teórica:")
+        print(f"qf = ({qfx:.3f}, {qfy:.3f}, {qftheta:.1f}°)")
+
+        print("\n(b) Configuración estimada (odometría):")
+        print(f"qf-est = ({qf_est_x:.3f}, {qf_est_y:.3f}, {qf_est_theta:.1f}°)")
+
+        print("\n(c) Configuración real (LiDAR):")
+        print(f"qact = ({qact_x:.3f}, {qact_y:.3f}, {qact_theta:.1f}°)")
+
+        print(f"\n- Distancias medidas con LIDAR (Teorica, dFrente: {dFrente_teorico}, dDerecha: {dDerecha_teorico})-")
+        print(f"dFrente   = {d_frente:.3f} m")
+        print(f"dDerecha  = {d_derecha:.3f} m")
+
+        print("\n--- Errores ---")
+        print(f"Error odometría: dx={qf_est_x - qfx:.3f}, dy={qf_est_y - qfy:.3f}")
+        print(f"Error LiDAR:     dx={qact_x - qfx:.3f}, dy={qact_y - qfy:.3f}")
+
+        print("========================================\n")
 
 
     # =======================================================

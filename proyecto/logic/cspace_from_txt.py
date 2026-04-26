@@ -208,6 +208,9 @@ def generar_cspace_desde_texto_escena(
     """
     escena = parsear_escena_txt(texto_escena)
 
+    dFrente = escena["dFrente"]
+    dDerecha = escena["dDerecha"]
+
     ancho = escena["ancho"]
     alto = escena["alto"]
     theta_grados = escena["q0"][2]
@@ -235,6 +238,8 @@ def generar_cspace_desde_texto_escena(
     )
 
     return {
+        "dFrente":dFrente,
+        "dDerecha": dDerecha,
         "ancho": ancho,
         "alto": alto,
         "lado_robot": lado_robot,
