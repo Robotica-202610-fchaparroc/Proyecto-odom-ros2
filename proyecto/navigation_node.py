@@ -6,21 +6,23 @@ import threading
 import time
 
 import rclpy
-from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 
+from .logic.routes import obtener_rutas_base_install
 from .logic.lidar import obtener_distancia_angulo, obtener_distancias_rango
 from .logic.movement import calcular_rotacion
 from .logic.cspace_from_txt import generar_cspace_desde_texto_escena
+from .logic.c_space import buscar_celda_punto_cspace, nombre_estado_celda
 from .logic.cspace_plot import mostrar_cspace, close_plot_grid
 from .logic.astar_grid import (
     astar_orientado,
     theta_a_orientacion,
     orientacion_a_texto,
 )
+from .logic.results import informar_estado_final_qf, guardar_camino_txt, completar_camino_txt_con_resultados
 
 
 class NavigationNode(Node):
@@ -105,14 +107,8 @@ class NavigationNode(Node):
 
 
     # =======================================================
-    # RUTAS Y PROCESOS
+    # PROCESOS
     # =======================================================
-    def obtener_rutas_base(self):
-        package_share = get_package_share_directory('proyecto')
-        ruta_data = os.path.join(package_share, 'data')
-        ruta_worlds = os.path.join(package_share, 'worlds')
-        return ruta_data, ruta_worlds
-
     def _detener_proceso(self, proceso, nombre):
         if not proceso or proceso.poll() is not None:
             return None
@@ -146,7 +142,7 @@ class NavigationNode(Node):
         self.bridge_process = self._detener_proceso(self.bridge_process, "bridge")
 
     def lanzar_gazebo_escena(self, numero_escena):
-        _, ruta_worlds = self.obtener_rutas_base()
+        _, ruta_worlds = obtener_rutas_base_install(self)
         ruta_sdf = os.path.join(ruta_worlds, f'escena{numero_escena}.sdf')
 
         if not os.path.exists(ruta_sdf):
@@ -189,7 +185,7 @@ class NavigationNode(Node):
             return False
 
     def lanzar_bridge(self):
-        _, ruta_worlds = self.obtener_rutas_base()
+        _, ruta_worlds = obtener_rutas_base_install(self)
         script_path = os.path.join(ruta_worlds, "bridge_gz.sh")
 
         if not os.path.exists(script_path):
@@ -230,30 +226,7 @@ class NavigationNode(Node):
     # =======================================================
     ## CREAR MALLA EN ESCENA
     # =======================================================
-    def buscar_celda_punto_cspace(self, x, y, matriz, dx, dy, ancho, alto):
-        columnas = int(round(ancho / dx))
-        filas = int(round(alto / dy))
-
-        if not (0.0 <= x <= ancho and 0.0 <= y <= alto):
-            return None, None, "FUERA"
-
-        columna = min(int(x / dx), columnas - 1)
-        fila_desde_abajo = min(int(y / dy), filas - 1)
-        fila_desde_arriba = filas - 1 - fila_desde_abajo
-
-        estado = matriz[fila_desde_arriba][columna]
-        return fila_desde_arriba, columna, estado
-
-    def nombre_estado_celda(self, estado):
-        nombres = {
-            "L": "Libre",
-            "S": "Semilibre",
-            "O": "Ocupada",
-            "FUERA": "Fuera del workspace",
-        }
-        return nombres.get(estado, estado)
-
-    def probar_cspace_escena_actual(self):
+    def generar_cspace_escena_actual(self):
         if not self.texto_escena.strip():
             print("⚠️ Primero carga una escena TXT.")
             return
@@ -275,14 +248,16 @@ class NavigationNode(Node):
         q0x, q0y, q0theta = resultado["q0"]
         qfx, qfy, qftheta = resultado["qf"]
 
-        fila_i, col_i, estado_i = self.buscar_celda_punto_cspace(
+        fila_i, col_i, estado_i = buscar_celda_punto_cspace(
+            self,
             q0x, q0y,
             resultado["matriz"],
             resultado["delta_x"], resultado["delta_y"],
             resultado["ancho"], resultado["alto"]
         )
 
-        fila_f, col_f, estado_f = self.buscar_celda_punto_cspace(
+        fila_f, col_f, estado_f = buscar_celda_punto_cspace(
+            self,
             qfx, qfy,
             resultado["matriz"],
             resultado["delta_x"], resultado["delta_y"],
@@ -308,11 +283,11 @@ class NavigationNode(Node):
         print("\n--- CLASIFICACIÓN DE CONFIGURACIONES ---")
         print(
             f"q0 = ({q0x:.2f}, {q0y:.2f}, {q0theta:.1f}°) -> "
-            f"fila={fila_i}, columna={col_i}, estado={self.nombre_estado_celda(estado_i)}"
+            f"fila={fila_i}, columna={col_i}, estado={nombre_estado_celda(self,estado_i)}"
         )
         print(
             f"qf = ({qfx:.2f}, {qfy:.2f}, {qftheta:.1f}°) -> "
-            f"fila={fila_f}, columna={col_f}, estado={self.nombre_estado_celda(estado_f)}"
+            f"fila={fila_f}, columna={col_f}, estado={nombre_estado_celda(self,estado_f)}"
         )
         print("------------------------\n")
 
@@ -340,14 +315,16 @@ class NavigationNode(Node):
         q0x, q0y, q0theta = resultado["q0"]
         qfx, qfy, qftheta = resultado["qf"]
 
-        fila_i, col_i, estado_i = self.buscar_celda_punto_cspace(
+        fila_i, col_i, estado_i = buscar_celda_punto_cspace(
+            self,
             q0x, q0y,
             matriz,
             resultado["delta_x"], resultado["delta_y"],
             resultado["ancho"], resultado["alto"]
         )
 
-        fila_f, col_f, estado_f = self.buscar_celda_punto_cspace(
+        fila_f, col_f, estado_f = buscar_celda_punto_cspace(
+            self,
             qfx, qfy,
             matriz,
             resultado["delta_x"], resultado["delta_y"],
@@ -395,6 +372,7 @@ class NavigationNode(Node):
             f"orientación={orientacion_a_texto(estado_final[2])}"
         )
         print("--------------------------\n")
+        guardar_camino_txt(self)
 
     def compactar_acciones_plan(self, acciones):
         acciones_compactadas = []
@@ -455,7 +433,10 @@ class NavigationNode(Node):
                 print(f"\n✅ Plan ejecutado completamente para escena No {self.escena_seleccionada}.\n")
 
                 # Mostrar resultados en qf
-                self.informar_estado_final_qf()
+                informar_estado_final_qf(self)
+
+                # Actualizar camino en txt con q finales.
+                completar_camino_txt_con_resultados(self)
 
                 self.mostrar_menu()
                 return
@@ -498,7 +479,7 @@ class NavigationNode(Node):
 
 
     # =======================================================
-    # Comandos para movimiento de Robot
+    # Comandos para movimiento y lectura de Robot
     # =======================================================
     def leer_distancia_en_angulo(self, grados):
         """Retorna la distancia (en metros) de un ángulo específico del Lidar."""
@@ -621,64 +602,10 @@ class NavigationNode(Node):
 
 
     # =======================================================
-    ## Reporte
-    # =======================================================
-    def informar_estado_final_qf(self):
-        if self.cspace_resultado is None or self.last_scan is None:
-            print("⚠️ No hay datos suficientes para informar qf.")
-            return
-
-        resultado = self.cspace_resultado
-        ancho = resultado["ancho"]
-        alto = resultado["alto"]
-        dFrente_teorico=resultado["dFrente"]
-        dDerecha_teorico=resultado["dDerecha"]
-
-        # --- qf teórica ---
-        qfx, qfy, qftheta = resultado["qf"]
-
-        # --- qf estimada (odometría) ---
-        qf_est_x = self.current_x
-        qf_est_y = self.current_y
-        qf_est_theta = math.degrees(self.current_theta)
-
-        # --- mediciones LiDAR ---
-        d_frente = self.leer_distancia_en_angulo(0.0)
-        d_derecha = self.leer_distancia_en_angulo(270.0)
-        d_atras = self.leer_distancia_en_angulo(180.0)
-        d_izquierda = self.leer_distancia_en_angulo(90.0)
-
-        # --- qact (real) ---
-        qact_x = ancho - d_derecha
-        qact_y = alto - d_frente
-        qact_theta = qftheta
-
-        print("\n=========== RESULTADOS EN qf ===========")
-        print("\n(a) Configuración teórica:")
-        print(f"qf = ({qfx:.3f}, {qfy:.3f}, {qftheta:.1f}°)")
-
-        print("\n(b) Configuración estimada (odometría):")
-        print(f"qf-est = ({qf_est_x:.3f}, {qf_est_y:.3f}, {qf_est_theta:.1f}°)")
-
-        print("\n(c) Configuración real (LiDAR):")
-        print(f"qact = ({qact_x:.3f}, {qact_y:.3f}, {qact_theta:.1f}°)")
-
-        print(f"\n- Distancias medidas con LIDAR (Teorica, dFrente: {dFrente_teorico}, dDerecha: {dDerecha_teorico})-")
-        print(f"dFrente   = {d_frente:.3f} m")
-        print(f"dDerecha  = {d_derecha:.3f} m")
-
-        print("\n--- Errores ---")
-        print(f"Error odometría: dx={qf_est_x - qfx:.3f}, dy={qf_est_y - qfy:.3f}")
-        print(f"Error LiDAR:     dx={qact_x - qfx:.3f}, dy={qact_y - qfy:.3f}")
-
-        print("========================================\n")
-
-
-    # =======================================================
     # Cargar escena sdf y txt
     # =======================================================
     def cargar_escena_txt(self, numero_escena):
-        ruta_data, _ = self.obtener_rutas_base()
+        ruta_data, _ = obtener_rutas_base_install(self)
         ruta_txt = os.path.join(ruta_data, f'Escena-Problema{numero_escena}.txt')
 
         if not os.path.exists(ruta_txt):
@@ -736,7 +663,7 @@ class NavigationNode(Node):
     # MENÚ
     # =======================================================
     def obtener_escenas_disponibles(self):
-        ruta_data, _ = self.obtener_rutas_base()
+        ruta_data, _ = obtener_rutas_base_install(self)
 
         archivos = os.listdir(ruta_data)
 
@@ -801,7 +728,7 @@ class NavigationNode(Node):
                         print("⚠️ Ingresa un número válido.")
 
                 elif opcion == '2':
-                    self.probar_cspace_escena_actual()
+                    self.generar_cspace_escena_actual()
                     self.planificar_ruta_astar()
                     self.graficar_cspace_escena_actual()
 

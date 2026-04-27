@@ -38,3 +38,26 @@ def punto_invalido(punto, c_obstaculo, c_x_min, c_x_max, c_y_min, c_y_max):
     dentro_o_frontera_obstaculo = punto_dentro_o_frontera_poligono(punto, c_obstaculo)
 
     return fuera_c or en_frontera_c or dentro_o_frontera_obstaculo
+
+def buscar_celda_punto_cspace(self, x, y, matriz, dx, dy, ancho, alto):
+    columnas = int(round(ancho / dx))
+    filas = int(round(alto / dy))
+
+    if not (0.0 <= x <= ancho and 0.0 <= y <= alto):
+        return None, None, "FUERA"
+
+    columna = min(int(x / dx), columnas - 1)
+    fila_desde_abajo = min(int(y / dy), filas - 1)
+    fila_desde_arriba = filas - 1 - fila_desde_abajo
+
+    estado = matriz[fila_desde_arriba][columna]
+    return fila_desde_arriba, columna, estado
+
+def nombre_estado_celda(self, estado):
+    nombres = {
+        "L": "Libre",
+        "S": "Semilibre",
+        "O": "Ocupada",
+        "FUERA": "Fuera del workspace",
+    }
+    return nombres.get(estado, estado)
