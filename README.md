@@ -3,6 +3,15 @@
 
 Este proyecto permite cargar escenas .txt y sdf para simular el entorno de un robot en un espacio de configuraciones en Gazebo, permitiendo construir un C-space con un punto de inicio y punto final del robot. Una vez discretizado el espacio de configuraciones se usa el algorimto A* para planear la ruta del punto inicial al punto final teniendo en cuenta los obstáculos del espacio. Finalmente una vez se encuentra la ruta se envian los comandos por odometria para que el robot realice la ruta correspondiente.
 
+## 🎥Videos de Demostración
+**Nota:** Se recomienda acelerar los videos a X2, ya que la maquina virtual hace que la simulación tarde.
+
+| Escenarios 1-3 | Escenarios 4-6 | Nuevos escenarios |
+|---------------|---------------|------------------|
+| <a href="https://www.youtube.com/watch?v=Fl4LPfvB1w4"><img src="https://img.youtube.com/vi/Fl4LPfvB1w4/0.jpg" width="250"/></a> | <a href="https://www.youtube.com/watch?v=KgmmWkVtrUE"><img src="https://img.youtube.com/vi/KgmmWkVtrUE/0.jpg" width="250"/></a> | <a href="https://www.youtube.com/watch?v=y8SwlyDH8BA"><img src="https://img.youtube.com/vi/y8SwlyDH8BA/0.jpg" width="250"/></a> |
+
+**Nota**: En el video **Nuevos escenarios** se hace la demostración creando una copia de otro escenario tanto en el folder `/data` como en `/worlds`, pero la idea es simplemente agregar el **.txt** del nuevo escenario en `/data` con el nombre *Escena-Problema#.txt* y el **.sdf** en `/worlds` con el nombre *escena#.sdf*
+
 ## Estructura principal
 - `proyecto/` : Código fuente del paquete.
 	- `navigation_node.py` : Nodo principal que expone funciones de utilidad para estudiantes (leer Lidar, rotar, mover relativo, cargar escenas, menú interactivo).
