@@ -57,49 +57,60 @@ def informar_estado_final_qf(self):
 
 
 def guardar_camino_txt(self):
-    if self.plan_resultado is None or self.cspace_resultado is None:
-        print("⚠️ No hay plan para guardar.")
-        return
+    try:
+        print("Guardando camino...")
+        if self.plan_resultado is None or self.cspace_resultado is None:
+            print("⚠️ No hay plan para guardar.")
+            return
 
-    if not hasattr(self, "escena_seleccionada"):
-        print("⚠️ No se conoce la escena actual.")
-        return
+        if not hasattr(self, "escena_seleccionada"):
+            print("⚠️ No se conoce la escena actual.")
+            return
 
-    ruta_repo = obtener_ruta_repo(self)
-    ruta_results = os.path.join(ruta_repo, "results")
-    os.makedirs(ruta_results, exist_ok=True)
+        ruta_repo = obtener_ruta_repo(self)
+        ruta_results = os.path.join(ruta_repo, "results")
+        os.makedirs(ruta_results, exist_ok=True)
 
-    nombre_archivo = f"camino_escena{self.escena_seleccionada}.txt"
-    ruta_archivo = os.path.join(ruta_results, nombre_archivo)
+        nombre_archivo = f"camino_escena{self.escena_seleccionada}.txt"
+        ruta_archivo = os.path.join(ruta_results, nombre_archivo)
 
-    resultado = self.cspace_resultado
-    dx = resultado["delta_x"]
-    dy = resultado["delta_y"]
-    alto = resultado["alto"]
+        resultado = self.cspace_resultado
+        dx = resultado["delta_x"]
+        dy = resultado["delta_y"]
+        alto = resultado["alto"]
 
-    def celda_a_xy(fila, col):
-        # centro de la celda
-        x = (col + 0.5) * dx
-        y = alto - (fila + 0.5) * dy
-        return x, y
+        def celda_a_xy(fila, col):
+            # centro de la celda
+            x = (col + 0.5) * dx
+            y = alto - (fila + 0.5) * dy
+            return x, y
 
-    with open(ruta_archivo, "w", encoding="utf-8") as f:
-        f.write("# Camino geométrico A*\n")
+        with open(ruta_archivo, "w", encoding="utf-8") as f:
+            f.write("# Camino geométrico A*\n")
 
-        for estado in self.plan_resultado["camino"]:
-            fila, col, orient = estado
-            x, y = celda_a_xy(fila, col)
+            for estado in self.plan_resultado["camino"]:
+                fila, col, orient = estado
+                x, y = celda_a_xy(fila, col)
 
-            theta_deg = {
-                0: 0,    # Este
-                1: 90,   # Norte
-                2: 180,  # Oeste
-                3: 270   # Sur
-            }[orient]
+                theta_deg = {
+                    0: 0,    # Este
+                    1: 90,   # Norte
+                    2: 180,  # Oeste
+                    3: 270   # Sur
+                }[orient]
 
-            f.write(f"{x:.3f},{y:.3f},{theta_deg}\n")
+                f.write(f"{x:.3f},{y:.3f},{theta_deg}\n")
 
-    print(f"✅ Camino geométrico guardado en: {ruta_archivo}")
+        print(f"✅ Camino geométrico guardado en: {ruta_archivo}")
+    
+    except KeyError as e:
+        print(f"Falta una clave en los datos: {e}")
+    except PermissionError:
+        print("No hay permisos para crear o excribir el archivo")
+    except OSError as e:
+        print(f"Error del sistema de archivos: {e}")
+    except Exception as e:
+        print(f"Error al guardar el camino {e}")
 
 def completar_camino_txt_con_resultados(self, nombre_archivo="camino_plan.txt"):
     if self.cspace_resultado is None or self.last_scan is None:

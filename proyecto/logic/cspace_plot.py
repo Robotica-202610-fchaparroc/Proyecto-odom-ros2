@@ -92,239 +92,282 @@ def graficar_cspace_discretizado_multi(resultado, plan=None):
     """
     Dibuja la malla discretizada del C-space usando el diccionario
     retornado por generar_cspace_desde_texto_escena(...).
+
     """
-
-    ancho = resultado["ancho"]
-    alto = resultado["alto"]
-    lado_robot = resultado["lado_robot"]
-    delta_x = resultado["delta_x"]
-    delta_y = resultado["delta_y"]
-    matriz = resultado["matriz"]
-    c_obstaculos = resultado["c_obstaculos"]
-    c_x_min = resultado["c_x_min"]
-    c_x_max = resultado["c_x_max"]
-    c_y_min = resultado["c_y_min"]
-    c_y_max = resultado["c_y_max"]
-    q0x, q0y, _ = resultado["q0"]
-    qfx, qfy, _ = resultado["qf"]
-
-    close_plot_grid()
-    figura, eje = plt.subplots(figsize=(8, 7))
-
-    # Mover ventana a la derecha
-    manager = plt.get_current_fig_manager()
     try:
-        manager.window.wm_geometry("+1000+50")  # (x, y)
-    except:
-        pass
+        print("Creando grafico...")
+        claves_requeridas = [
+            "ancho", "alto", "lado_robot", "delta_x", "delta_y",
+            "matriz", "c_obstaculos", "c_x_min", "c_x_max",
+            "c_y_min", "c_y_max", "q0", "qf", "obstaculos"
+        ]
 
-    eje.set_title("C-space discretizado")
-    eje.set_xlabel("X (m)")
-    eje.set_ylabel("Y (m)")
-    eje.set_xlim(0, ancho)
-    eje.set_ylim(0, alto)
-    eje.set_aspect("equal", adjustable="box")
-
-    eje.set_xticks(np.arange(0, ancho + 0.5, 0.5))
-    eje.set_yticks(np.arange(0, alto + 0.5, 0.5))
-    eje.grid(True, color="#b0b0b0", linewidth=0.6, alpha=0.6)
-    eje.tick_params(axis="both", which="both", labelsize=9)
-    eje.spines['bottom'].set_linewidth(1.5)
-    eje.spines['left'].set_linewidth(1.5)
-
-    # Pintar celdas
-    for fila_desde_arriba in range(len(matriz)):
-        y0 = alto - (fila_desde_arriba + 1) * delta_y
-
-        for columna in range(len(matriz[0])):
-            x0 = columna * delta_x
-            estado = matriz[fila_desde_arriba][columna]
-
-            if estado == "L":
-                color = "#ffffff"      # blanco
-            elif estado == "S":
-                color = "#bfbfbf"      # gris medio
-            else:
-                color = "#000000"      # negro
-
-            rectangulo = Rectangle(
-                (x0, y0),
-                delta_x,
-                delta_y,
-                facecolor=color,
-                edgecolor="#d0d0d0",
-                linewidth=0.2
-            )
-            eje.add_patch(rectangulo)
-
-    # Límite válido del C-space
-    eje.add_patch(
-        Rectangle(
-            (c_x_min, c_y_min),
-            c_x_max - c_x_min,
-            c_y_max - c_y_min,
-            fill=False,
-            linestyle="--",
-            edgecolor="orange",
-            linewidth=2,
-            label="Límite C-space"
-        )
-    )
-
-    # Dibujar obstáculos originales
-    for i, obs in enumerate(resultado["obstaculos"]):
-        obs_clip = recortar_rectangulo_al_workspace(obs, ancho, alto)
-
-        if obs_clip is None:
-            continue
-
-        label = "Obstáculo real" if i == 0 else None
-
-        if obs_clip["tipo"] == "rect":
-            eje.add_patch(
-                PoligonoMpl(
-                    obs_clip["puntos"],
-                    closed=True,
-                    fill=False,
-                    edgecolor="red",
-                    linewidth=3,
-                    linestyle="-",
-                    label=label,
-                    zorder=7
-                )
-            )
-
-        elif obs_clip["tipo"] == "linea_vertical":
-            eje.plot(
-                [obs_clip["x"], obs_clip["x"]],
-                [obs_clip["y1"], obs_clip["y2"]],
-                color="red",
-                linewidth=6,
-                solid_capstyle="butt",
-                label=label,
-                zorder=8
-            )
-
-        elif obs_clip["tipo"] == "linea_horizontal":
-            eje.plot(
-                [obs_clip["x1"], obs_clip["x2"]],
-                [obs_clip["y"], obs_clip["y"]],
-                color="red",
-                linewidth=6,
-                solid_capstyle="butt",
-                label=label,
-                zorder=8
-            )
-
-        elif obs_clip["tipo"] == "punto":
-            eje.plot(
-                obs_clip["x"],
-                obs_clip["y"],
-                marker="s",
-                markersize=6,
-                color="red",
-                label=label,
-                zorder=8
-            )
-
-    # Dibujar todos los C-obstáculos
-    for i, c_obs in enumerate(c_obstaculos):
-        eje.add_patch(
-            PoligonoMpl(
-                c_obs,
-                closed=True,
-                fill=False,
-                edgecolor="cyan",
-                linewidth=2.5,
-                alpha=0.9,
-                label="C-obstáculo" if i == 0 else None
-            )
-        )
-
-    # Dibujar q0 y qf
-    eje.plot(q0x, q0y, marker="o", markersize=8, color="green", label="q0")
-    eje.plot(qfx, qfy, marker="x", markersize=8, color="blue", label="qf")
-    # Dibujar el robot como cuadrado en q0 y qf
-    dibujar_robot(eje, (q0x, q0y), lado_robot, "green")
-    dibujar_robot(eje, (qfx, qfy), lado_robot, "blue")
-
-    # Dibujar ruta A* si existe solución
-    if plan is not None and "camino" in plan and plan["camino"]:
-        puntos_x = []
-        puntos_y = []
-
-        ultima_celda = None
-
-        for fila, columna, _orientacion in plan["camino"]:
-            celda_actual = (fila, columna)
-
-            if celda_actual == ultima_celda:
-                continue
-
-            x, y = celda_a_coordenada_centro(
-                fila,
-                columna,
-                delta_x,
-                delta_y,
-                alto
-            )
-            puntos_x.append(x)
-            puntos_y.append(y)
-
-            ultima_celda = celda_actual
-
+        for clave in claves_requeridas:
+            if clave not in resultado:
+                raise KeyError(f"Falta la clave '{clave}' en resultado")
+            
+        ancho = resultado["ancho"]
+        alto = resultado["alto"]
+        lado_robot = resultado["lado_robot"]
+        delta_x = resultado["delta_x"]
+        delta_y = resultado["delta_y"]
+        matriz = resultado["matriz"]
+        c_obstaculos = resultado["c_obstaculos"]
+        c_x_min = resultado["c_x_min"]
+        c_x_max = resultado["c_x_max"]
+        c_y_min = resultado["c_y_min"]
+        c_y_max = resultado["c_y_max"]
         q0x, q0y, _ = resultado["q0"]
         qfx, qfy, _ = resultado["qf"]
 
-        if puntos_x and puntos_y:
-            puntos_x[0] = q0x
-            puntos_y[0] = q0y
-            puntos_x[-1] = qfx
-            puntos_y[-1] = qfy
+        if not matriz or not matriz[0]:
+            raise ValueError("La matriz del C-space está vacía")
 
-        eje.plot(
-            puntos_x,
-            puntos_y,
-            color="magenta",
-            linewidth=2.5,
-            label="Ruta A*",
-            zorder=10
+        close_plot_grid()
+        figura, eje = plt.subplots(figsize=(8, 7))
+
+        # Mover ventana a la derecha
+        manager = plt.get_current_fig_manager()
+        try:
+            manager.window.wm_geometry("+1000+50")  # (x, y)
+        except:
+            pass
+
+        eje.set_title("C-space discretizado")
+        eje.set_xlabel("X (m)")
+        eje.set_ylabel("Y (m)")
+        eje.set_xlim(0, ancho)
+        eje.set_ylim(0, alto)
+        eje.set_aspect("equal", adjustable="box")
+
+        eje.set_xticks(np.arange(0, ancho + 0.5, 0.5))
+        eje.set_yticks(np.arange(0, alto + 0.5, 0.5))
+        eje.grid(True, color="#b0b0b0", linewidth=0.6, alpha=0.6)
+        eje.tick_params(axis="both", which="both", labelsize=9)
+        eje.spines['bottom'].set_linewidth(1.5)
+        eje.spines['left'].set_linewidth(1.5)
+
+        # Pintar celdas
+        for fila_desde_arriba in range(len(matriz)):
+            y0 = alto - (fila_desde_arriba + 1) * delta_y
+
+            for columna in range(len(matriz[0])):
+                x0 = columna * delta_x
+                estado = matriz[fila_desde_arriba][columna]
+
+                if estado == "L":
+                    color = "#ffffff"      # blanco
+                elif estado == "S":
+                    color = "#bfbfbf"      # gris medio
+                else:
+                    color = "#000000"      # negro
+
+                rectangulo = Rectangle(
+                    (x0, y0),
+                    delta_x,
+                    delta_y,
+                    facecolor=color,
+                    edgecolor="#d0d0d0",
+                    linewidth=0.2
+                )
+                eje.add_patch(rectangulo)
+
+        # Límite válido del C-space
+        eje.add_patch(
+            Rectangle(
+                (c_x_min, c_y_min),
+                c_x_max - c_x_min,
+                c_y_max - c_y_min,
+                fill=False,
+                linestyle="--",
+                edgecolor="orange",
+                linewidth=2,
+                label="Límite C-space"
+            )
         )
 
-        # Dibujar orientación del robot en el path hasta qf
-        for fila, col, orient in plan["camino"][::3]:  # cada 3 puntos la flecha
-            x, y = celda_a_coordenada_centro(fila, col, delta_x, delta_y, alto)
+        # Dibujar obstáculos originales
+        for i, obs in enumerate(resultado["obstaculos"]):
+            try:
+                obs_clip = recortar_rectangulo_al_workspace(obs, ancho, alto)
 
-            dx_dir, dy_dir = {
-                0: (1, 0),    # Este
-                1: (0, 1),    # Norte
-                2: (-1, 0),   # Oeste
-                3: (0, -1),   # Sur
-            }[orient]
+                if obs_clip is None:
+                    continue
 
-            eje.arrow(
-                x, y,
-                dx_dir * 0.2,
-                dy_dir * 0.2,
-                head_width=0.05,
-                color="purple",
-                zorder=11
+                label = "Obstáculo real" if i == 0 else None
+
+                if obs_clip["tipo"] == "rect":
+                    eje.add_patch(
+                        PoligonoMpl(
+                            obs_clip["puntos"],
+                            closed=True,
+                            fill=False,
+                            edgecolor="red",
+                            linewidth=3,
+                            linestyle="-",
+                            label=label,
+                            zorder=7
+                        )
+                    )
+
+                elif obs_clip["tipo"] == "linea_vertical":
+                    eje.plot(
+                        [obs_clip["x"], obs_clip["x"]],
+                        [obs_clip["y1"], obs_clip["y2"]],
+                        color="red",
+                        linewidth=6,
+                        solid_capstyle="butt",
+                        label=label,
+                        zorder=8
+                    )
+
+                elif obs_clip["tipo"] == "linea_horizontal":
+                    eje.plot(
+                        [obs_clip["x1"], obs_clip["x2"]],
+                        [obs_clip["y"], obs_clip["y"]],
+                        color="red",
+                        linewidth=6,
+                        solid_capstyle="butt",
+                        label=label,
+                        zorder=8
+                    )
+
+                elif obs_clip["tipo"] == "punto":
+                    eje.plot(
+                        obs_clip["x"],
+                        obs_clip["y"],
+                        marker="s",
+                        markersize=6,
+                        color="red",
+                        label=label,
+                        zorder=8
+                    )
+            except Exception as e:
+                print(f"No se pudo dibujar un obstáculo: {e}")
+
+        # Dibujar todos los C-obstáculos
+        for i, c_obs in enumerate(c_obstaculos):
+            try:
+                eje.add_patch(
+                    PoligonoMpl(
+                        c_obs,
+                        closed=True,
+                        fill=False,
+                        edgecolor="cyan",
+                        linewidth=2.5,
+                        alpha=0.9,
+                        label="C-obstáculo" if i == 0 else None
+                    )
+                )
+            except Exception as e:
+                print(f"No se pudo dibujar un C-obstáculo: {e}")
+
+        # Dibujar q0 y qf
+        eje.plot(q0x, q0y, marker="o", markersize=8, color="green", label="q0")
+        eje.plot(qfx, qfy, marker="x", markersize=8, color="blue", label="qf")
+        # Dibujar el robot como cuadrado en q0 y qf
+        dibujar_robot(eje, (q0x, q0y), lado_robot, "green")
+        dibujar_robot(eje, (qfx, qfy), lado_robot, "blue")
+
+        # Dibujar ruta A* si existe solución
+        if plan is not None and "camino" in plan and plan["camino"]:
+            puntos_x = []
+            puntos_y = []
+
+            ultima_celda = None
+
+            for fila, columna, _orientacion in plan["camino"]:
+                try:
+                    celda_actual = (fila, columna)
+
+                    if celda_actual == ultima_celda:
+                        continue
+
+                    x, y = celda_a_coordenada_centro(
+                        fila,
+                        columna,
+                        delta_x,
+                        delta_y,
+                        alto
+                    )
+                    puntos_x.append(x)
+                    puntos_y.append(y)
+
+                    ultima_celda = celda_actual
+                except Exception as e:
+                    print(f"Punto inválido en el camino: Error: {e}")
+
+            q0x, q0y, _ = resultado["q0"]
+            qfx, qfy, _ = resultado["qf"]
+
+            if puntos_x and puntos_y:
+                puntos_x[0] = q0x
+                puntos_y[0] = q0y
+                puntos_x[-1] = qfx
+                puntos_y[-1] = qfy
+
+            eje.plot(
+                puntos_x,
+                puntos_y,
+                color="magenta",
+                linewidth=2.5,
+                label="Ruta A*",
+                zorder=10
             )
 
+            # Dibujar orientación del robot en el path hasta qf
+            for fila, col, orient  in plan["camino"][::3]:  # cada 3 puntos la flecha
+                try:
+                    x, y = celda_a_coordenada_centro(fila, col, delta_x, delta_y, alto)
+
+                    dx_dir, dy_dir = {
+                        0: (1, 0),    # Este
+                        1: (0, 1),    # Norte
+                        2: (-1, 0),   # Oeste
+                        3: (0, -1),   # Sur
+                    }[orient]
+
+                    eje.arrow(
+                        x, y,
+                        dx_dir * 0.2,
+                        dy_dir * 0.2,
+                        head_width=0.05,
+                        color="purple",
+                        zorder=11
+                    )
+                except Exception as e:
+                    print(f"No se pudo dibujar una flecha del camino: {e}")
 
 
-    eje.legend(
-        loc="upper left",
-        bbox_to_anchor=(1.02, 1),  # Cuadro labels fuera del gráfico
-        borderaxespad=0
-    )
-    return figura, eje
+        eje.legend(
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1),  # Cuadro labels fuera del gráfico
+            borderaxespad=0
+        )
+        return figura, eje
+
+    except KeyError as e:
+        print(f"Error de datos: {e}")
+
+    except ValueError as e:
+        print(f"Error de valor: {e}")
+
+    except TypeError as e:
+        print(f"Tipo de dato inválido: {e}")
+
+    except Exception as e:
+        print(f"Error al graficar el C-space: {e}")
+
+    return None, None
 
 
 def mostrar_cspace(resultado, plan=None):
-    graficar_cspace_discretizado_multi(resultado, plan=plan)
-    plt.show(block=False)
-    plt.pause(0.001)
+    try:
+        graficar_cspace_discretizado_multi(resultado, plan=plan)
+        plt.show(block=False)
+        plt.pause(0.001)
+    except Exception as e:
+        print(f"Se produjo un error al mostrar el grafico C-Space: {e}")
 
 def celda_a_coordenada_centro(fila, columna, dx, dy, alto):
     """

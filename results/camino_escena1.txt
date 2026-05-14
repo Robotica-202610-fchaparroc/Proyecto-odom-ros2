@@ -66,5 +66,5 @@
 
 # --- RESULTADOS FINALES ---
 qf_teorica,3.250,4.250,90.0
-qf_estimada,3.117,4.226,91.7
-qact_real,3.117,4.214,90.0
+qf_estimada,3.102,4.229,91.7
+qact_real,3.102,4.217,90.0

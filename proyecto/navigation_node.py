@@ -294,12 +294,15 @@ class NavigationNode(Node):
         self.cspace_resultado = resultado
 
     def graficar_cspace_escena_actual(self):
-        if not hasattr(self, "cspace_resultado") or self.cspace_resultado is None:
-            print("⚠️ Primero genera el C-space de la escena.")
-            return
+        try:
+            if not hasattr(self, "cspace_resultado") or self.cspace_resultado is None:
+                print("⚠️ Primero genera el C-space de la escena.")
+                return
 
-        plan = self.plan_resultado if hasattr(self, "plan_resultado") else None
-        mostrar_cspace(self.cspace_resultado, plan=plan)
+            plan = self.plan_resultado if hasattr(self, "plan_resultado") else None
+            mostrar_cspace(self.cspace_resultado, plan=plan)
+        except Exception as e:
+            print(f"Error: {e}")
 
     # =======================================================
     ## Metodo planificación A*
@@ -394,32 +397,35 @@ class NavigationNode(Node):
         return acciones_compactadas
 
     def ejecutar_plan_astar(self):
-        if self.plan_resultado is None:
-            print("⚠️ Primero planifica una ruta con A*.")
-            return
+        try:
+            if self.plan_resultado is None:
+                print("⚠️ Primero planifica una ruta con A*.")
+                return
 
-        if self.cspace_resultado is None:
-            print("⚠️ Primero genera el C-space.")
-            return
+            if self.cspace_resultado is None:
+                print("⚠️ Primero genera el C-space.")
+                return
 
-        acciones = self.plan_resultado.get("acciones", [])
-        if not acciones:
-            print("⚠️ El plan no tiene acciones para ejecutar.")
-            return
+            acciones = self.plan_resultado.get("acciones", [])
+            if not acciones:
+                print("⚠️ El plan no tiene acciones para ejecutar.")
+                return
 
-        # Importante: para mover una celda, asumimos delta_x == delta_y
-        dx = self.cspace_resultado["delta_x"]
-        dy = self.cspace_resultado["delta_y"]
+            # Importante: para mover una celda, asumimos delta_x == delta_y
+            dx = self.cspace_resultado["delta_x"]
+            dy = self.cspace_resultado["delta_y"]
 
-        if abs(dx - dy) > 1e-9:
-            print("⚠️ Para esta ejecución simple se requiere delta_x == delta_y.")
-            return
+            if abs(dx - dy) > 1e-9:
+                print("⚠️ Para esta ejecución simple se requiere delta_x == delta_y.")
+                return
 
-        self.acciones_plan_pendientes = self.compactar_acciones_plan(acciones)
-        self.accion_plan_actual = None
-        self.plan_en_ejecucion = True
+            self.acciones_plan_pendientes = self.compactar_acciones_plan(acciones)
+            self.accion_plan_actual = None
+            self.plan_en_ejecucion = True
 
-        print(f"\n▶ Ejecutando plan A* con {len(acciones)} acciones...\n")
+            print(f"\n▶ Ejecutando plan A* con {len(acciones)} acciones...\n")
+        except Exception as e:
+            print(f"Se produjo un error al ejecutar el plan: {e}")
 
     def ejecutar_siguiente_accion_plan(self):
         if not self.plan_en_ejecucion:
